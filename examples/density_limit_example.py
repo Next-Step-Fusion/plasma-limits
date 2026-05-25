@@ -5,20 +5,23 @@ import os
 
 from density_limit.metrics import DL26, Greenwald, PlasmaState
 
+# Read plasma data
 filename = "examples/CUTE/plasma_parameters_CUTE.csv"
 df = pd.read_csv(filename)  # Replace with actual path to dataframe
 
+# Convert units and extract parameters
 times = df["time"]
-Ip = df["ip"]
+Ip = df["ip"] * 1e6  # Convert from [MA] to [A]
 Bt0 = df["BT"]
 R0 = df["R0"]
 epsilon = df["epsilon"]
 a0 = R0 * epsilon
 kappa = df["kappa"]
-ne = df["n_e"]
-ne_edge = df["ne_edge"]
-Te_edge = df["Te_edge"]
+ne = df["n_e"] * 1e20  # Convert from [10^20 m^-3] to [m^-3]
+ne_edge = df["ne_edge"] * 1e20  # Convert from [10^20 m^-3] to [m^-3]
+Te_edge = df["Te_edge"] * 1e20  # Convert from [10^20 m^-3] to [m^-3]
 
+# Calculate limits
 dl26 = np.zeros_like(times)
 f_Gw = np.zeros_like(times)
 for i, time in enumerate(times):
@@ -27,10 +30,10 @@ for i, time in enumerate(times):
         a0=a0[i],
         Bt0=Bt0[i],
         kappa=kappa[i],
-        Ip=Ip[i] * 1e6, # Convert from MA to A
-        Te_edge=Te_edge[i] * 1e3, # Convert from keV to eV
-        ne_edge=ne_edge[i] * 1e20, # Convert from 10^20 m^-3 to m^-3
-        ne_mean=ne[i] * 1e20, # Convert from 10^20 m^-3 to m^-3
+        Ip=Ip[i],
+        Te_edge=Te_edge[i],
+        ne_edge=ne_edge[i],
+        ne_mean=ne[i],
     )
     dl26_metric = DL26(state, warning_threshold=0.1)
     gw_metric = Greenwald(state)
@@ -38,7 +41,7 @@ for i, time in enumerate(times):
     dl26[i] = dl26_metric.instability_metric
     f_Gw[i] = gw_metric.f_Gw
 
-
+# PLOT
 fig, ax = plt.subplots(1, 1, figsize=(12, 6))
 
 # Plot DL26 metric and Greenwald fraction over time
