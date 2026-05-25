@@ -92,8 +92,7 @@ def calc_beta_edge(
     bt_edge_outboard = Bt0 * R0 / (R0 + a0)
     b_tot_edge_outboard = np.sqrt(bt_edge_outboard**2 + b_poloidal_edge**2)
     return (
-        4 * VACUUM_PERMEABILITY * ne_edge * Te_edge
-        * ELEMENTARY_CHARGE * b_tot_edge_outboard**(-2)
+        4 * VACUUM_PERMEABILITY * ne_edge * Te_edge * ELEMENTARY_CHARGE * b_tot_edge_outboard**(-2)
     )
 
 
@@ -118,44 +117,68 @@ class DL26:
     collisionality and edge beta. A normalized_limit approaching 1 indicates
     proximity to the density limit.
     """
+    state: PlasmaState
+    warning_threshold: float
 
-    normalized_limit: float
+    normalized_metric: float
     instability_metric: float
-    collisionality_edge: float
-    beta_edge: float
-    q_star: float
+
 
     def __init__(self, plasma_state: PlasmaState, warning_threshold: float = 0.1):
-        epsilon = plasma_state.a0 / plasma_state.R0
-        self.q_star = calc_q_star(
-            Bt0=plasma_state.Bt0,
-            R0=plasma_state.R0,
-            epsilon=epsilon,
-            kappa=plasma_state.kappa,
-            Ip=plasma_state.Ip,
-        )
-        self.collisionality_edge = calc_collisionality_edge(
-            ne_edge=plasma_state.ne_edge,
-            Te_edge=plasma_state.Te_edge,
-            q_star=self.q_star,
-            R0=plasma_state.R0,
-            epsilon=epsilon,
-        )
-        self.beta_edge = calc_beta_edge(
-            ne_edge=plasma_state.ne_edge,
-            Te_edge=plasma_state.Te_edge,
-            Bt0=plasma_state.Bt0,
-            R0=plasma_state.R0,
-            a0=plasma_state.a0,
-            Ip=plasma_state.Ip,
-        )
+        self.state = plasma_state
         self.warning_threshold = warning_threshold
-        self.instability_metric = self.collisionality_edge * self.beta_edge
-        self.normalized_limit = self.instability_metric / self.warning_threshold
 
-    def to_density_value(self) -> float:
-        """Convert instability metric to an equivalent density value."""
-        pass
+        self.instability_metric = self._instability_at(self.state.ne_edge)
+        self.normalized_metric = self.instability_metric / self.warning_threshold
+
+    def to_limit_density(self, max_iter: int = 10, tol: float = 1e-6) -> float:
+        """Return edge electron density [m^-3] at which normalized_metric = 1.0.
+
+            ν*_edge ∝ n_e · lnΛ(n_e, T_e)
+            β_edge  ∝ n_e · T_e
+            => instability_metric ∝ n_e^2 · T_e · lnΛ(n_e, T_e)
+
+        Fixed-point iteration: treat lnΛ as frozen during each step and
+        rescale n by sqrt(target / current); lnΛ is recomputed inside
+        _instability_at on the next pass. Converges in a few iterations
+        because lnΛ depends only logarithmically on n.
+        """
+        target = self.warning_threshold
+        n = self.state.ne_edge
+        for _ in range(max_iter):
+            m_trial = self._instability_at(n)
+            ratio = np.sqrt(target / m_trial)
+            n *= ratio
+            if abs(ratio - 1.0) < tol:
+                break
+        return n
+
+    def _instability_at(self, n: float) -> float:
+        """Calculate instability metric at a given density n."""
+        epsilon = self.state.a0 / self.state.R0
+        q_star = calc_q_star(
+            Bt0=self.state.Bt0,
+            R0=self.state.R0,
+            epsilon=epsilon,
+            kappa=self.state.kappa,
+            Ip=self.state.Ip,
+        )
+        collisionality_edge = calc_collisionality_edge(
+            ne_edge=n,
+            Te_edge=self.state.Te_edge,
+            q_star=q_star,
+            R0=self.state.R0,
+            epsilon=epsilon,
+        )
+        beta_edge = calc_beta_edge(
+            ne_edge=n,
+            Te_edge=self.state.Te_edge,
+            Bt0=self.state.Bt0,
+            R0=self.state.R0,
+            a0=self.state.a0,
+            Ip=self.state.Ip,
+        )
+        return collisionality_edge * beta_edge * q_star
 
 
 class Greenwald:
@@ -169,5 +192,5 @@ class Greenwald:
     f_Gw: float  # [-] Greenwald fraction (ne_mean / n_Gw)
 
     def __init__(self, plasma_state: PlasmaState):
-        self.n_Gw = plasma_state.Ip / (np.pi * plasma_state.a0**2) * 1e14
+        self.n_Gw = (plasma_state.Ip * 1e-6) / (np.pi * plasma_state.a0**2) * 1e20
         self.f_Gw = plasma_state.ne_mean / self.n_Gw
