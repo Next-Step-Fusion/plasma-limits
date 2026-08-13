@@ -1,9 +1,13 @@
+import os
 import numpy as np
 from scipy.interpolate import RectBivariateSpline, interp1d
 from scipy.integrate import simpson, solve_bvp, cumulative_trapezoid
+from scipy import constants
 import matplotlib.pyplot as plt
+from matplotlib.path import Path as _MplPath
 from src.adas.adas_ionisation import scd_adas
 from src.adas.adas_cx import scx_adas
+from src.radas.radas_rates import scd_radas, scx_radas
 try:
     from firedrake import (
         IntervalMesh, FunctionSpace, MixedFunctionSpace, Function,
@@ -28,7 +32,6 @@ class saarelma_connor:
     - juliacall (install with pip install juliacall) for EPEDNN interfacing
     - EPEDNN (install by git clone)
     - OpenFUSIONToolkit -> TokaMaker
-    - Firedrake for BVP solver
 
     Uses COCOS 7 coordinate convention (same as TokaMaker) as defined by https://crppwww.epfl.ch/~sauter/cocos/Sauter_COCOS_Tokamak_Coordinate_Conventions.pdf
 
@@ -113,9 +116,10 @@ class saarelma_connor:
         nFC_threshold = 0.01, # fraction of nFC at the separatrix below which the inner boundary is placed (None to disable)
         nCX_threshold = 0.01, # fraction of nCX at the separatrix below which the inner boundary is placed (None to disable)
         mhd_loc = 'eqdsk', # location of MHD equilibrium parameters, currently supporting: Tokamaker eqdsk
-        kprof_loc = 'p', # location of kinetic parameters, currently supporting: p-file
+        kprof_loc = 'pfile', # location of kinetic parameters, currently supporting: p-file
         mhd_fp = None, # filepath to MHD paramter file
         kprof_fp = None, # filepath to kinetic paramter file
+        manual_profs = None, # manual profiles for the electron temperature and density, currently supporting: 'pfile', 'epednn'
         T_rat_flag = True, # True if using a temperature ratio between ions and electrons, False if doing something else
         T_rat = 1,
         pol_norm = False, # True for when the poloidal flux is not normalized by 2pi. COCOS 7 convention is pol_norm=False, so poloidal flux is normalized by 2pi
@@ -124,10 +128,13 @@ class saarelma_connor:
         equations_to_solve = 'coupled', # equations to solve, currently supporting: 'coupled', 'SC'
         initial_guess = 'pfile', # initial guess for the electron density profile, currently supporting: pfile, linear
         nCX_ic="solve",
+        regime_flag = 'PT H-mode', # regime of the plasma, currently supporting: 'PT H-mode', 'NT'
+        x_method = 'radas', # method to use for the cross-section rates, currently supporting: 'adas', 'radas'
         verbose = False,
     ):
 
         # User-specified flags
+        self.regime_flag = regime_flag
         self.equations_to_solve = equations_to_solve
         self.error_check = error_check
         self.T_rat_flag = T_rat_flag
@@ -160,20 +167,17 @@ class saarelma_connor:
 
         # Load in quantities
         self.mhd_load(mhd_loc,mhd_fp) # load in MHD quantities
-        self.kprof_load(kprof_loc,kprof_fp) # load in kinetic quantities
-
-        # TEMPERATURE IS GIVEN AS AN INPUT TO THIS MODEL
+        self.kprof_load(kprof_loc,kprof_fp,manual_profs=manual_profs) # load in kinetic quantities
         
         # Calculate the magnetic field at each RZ grid point, sets self.B
         self.calc_B(self.rgrid,self.zgrid)
-
 
         # calculate the flux surface-averaged |grad(r)| and |grad(r)|^2 and some other quantities like r_psi (outboard midplane minor radius for each flux surface)
         self.calc_gradr() # only a function of geometry
 
         # Calculate velocities
         self.Z_i = Z_i
-        self.e_i = Z_i * 1.602e-19 # C
+        self.e_i = Z_i * constants.e # C
         k_B = 1.38064852e-23 # J/K, Boltzmann constant
         self.V_th_i = np.sqrt(2*k_B*self.T_i_K/(M_i*self.M_eff)) # m/s, per psi_N_eval for Ti
         self.V_th_e = np.sqrt(2*k_B*self.T_e_K/M_e) # m/s, per psi_N_eval for Te
@@ -181,7 +185,7 @@ class saarelma_connor:
         self.V_cx = np.sqrt(2*k_B*self.T_i_K/(np.pi * M_i*self.M_eff)) # m/s, per psi_N_eval for Ti
 
         # Load in cross-section rates, which are only a function of temperature if we use an average density (predictive models could provide a guess density)
-        self.cross_section_rates(species) # load in cross-sections
+        self.cross_section_rates(species=species,x_method=x_method) # load in cross-sections
         # self.S_i = self.sigma_i # m^3/s, ionization <sigma v> profile on psi_Te_eval (scd_adas already returns the rate coefficient)
         # self.S_cx = self.sigma_cx * self.V_th_i # m^3/s, CX rate coefficient profile on psi_Te_eval
 
@@ -199,16 +203,36 @@ class saarelma_connor:
         T_e_pres = interp1d(self.psi_Te_eval, self.T_e, kind='linear',
                             bounds_error=False, fill_value='extrapolate')(self.psi_N_pres)
         self.T_e_pres = T_e_pres * (1e3) # eV, on psi_N_pres grid
-        if self.T_rat_flag:
+        if getattr(self, 'T_i_from_profile', False):
+            self.T_i_pres = interp1d(
+                self.psi_Ti_eval_pfile, self.T_i_pfile, kind='linear',
+                bounds_error=False, fill_value='extrapolate'
+            )(self.psi_N_pres) * (1e3)  # eV
+        elif self.T_rat_flag:
             self.T_i_pres = T_e_pres * self.T_rat * (1e3) # eV, on psi_N_pres grid
         else:
             raise NotImplementedError("T_rat_flag must be True for now")
         self.n_e_pres = interp1d(self.psi_ne_eval, self.n_e_pfile, kind='linear',
                             bounds_error=False, fill_value='extrapolate')(self.psi_N_pres)
+        self.n_i_pres = interp1d(self.psi_ni_eval, self.n_i_pfile, kind='linear',
+                            bounds_error=False, fill_value='extrapolate')(self.psi_N_pres)
         self.c_s = interp1d(self.psi_Te_eval, self.c_s, kind='linear',
                        bounds_error=False, fill_value='extrapolate')(self.psi_N_pres)
         self.rho_s = interp1d(self.psi_Te_eval, self.rho_s, kind='linear',
                          bounds_error=False, fill_value='extrapolate')(self.psi_N_pres)
+
+        # Also store pfile information for T_e and T_i
+        self.T_e_pres_pfile = interp1d(self.psi_Te_eval_pfile, self.T_e_pfile, kind='linear',
+                            bounds_error=False, fill_value='extrapolate')(self.psi_N_pres) * (1e3) # eV, on psi_N_pres grid
+        if getattr(self, 'T_i_from_profile', False):
+            self.T_i_pres_pfile = interp1d(
+                self.psi_Ti_eval_pfile, self.T_i_pfile, kind='linear',
+                bounds_error=False, fill_value='extrapolate'
+            )(self.psi_N_pres) * (1e3)  # eV
+        elif self.T_rat_flag:
+            self.T_i_pres_pfile = self.T_e_pres_pfile * self.T_rat # eV, on psi_N_pres grid
+        else:
+            raise NotImplementedError("T_rat_flag must be True for now")
 
         grad_Te = np.gradient(self.T_e_pres * (1.60218e-19), self.r_psi) # gradient in J/m, T_e_pres is in eV
         self.D_ETG_x = P_tot_e / (self.S_plasma * abs(grad_Te)) # evaluated at each psi_N_pres, not including free parameter De_chie_etg and n_e
@@ -258,6 +282,7 @@ class saarelma_connor:
                            nFC_threshold=None, nCX_threshold=None,
                            psi_N_inner_boundary=None,
                            ncx_x0_ratio=None,
+                           ne_inner=None, dne_dx_inner=None, ne_x0=None,
                            clear_solution=False):
         """Update free parameters.
 
@@ -283,6 +308,15 @@ class saarelma_connor:
         ncx_x0_ratio : float, optional
             Override the ratio of nCX at the separatrix to nFC at the separatrix (used in coupled solver).
             If omitted, keeps the value from construction.
+        ne_inner : float, optional
+            Override the electron density at the inner boundary.
+            If omitted, keeps the value from construction.
+        dne_dx_inner : float, optional
+            Override the derivative of the electron density at the inner boundary.
+            If omitted, keeps the value from construction.
+        ne_x0 : float, optional
+            Override the electron density at the outer boundary.
+            If omitted, keeps the value from construction.
         clear_solution : bool, default True
             If True, drop cached BVP solution attributes from a previous
             :meth:`solve` call.  Set False inside the Picard loop.
@@ -305,6 +339,13 @@ class saarelma_connor:
         if ncx_x0_ratio is not None:
             self.ncx_x0_ratio = ncx_x0_ratio
             self.nCX_x0 = self.ncx_x0_ratio * self.nFC_x0
+
+        if ne_inner is not None:
+            self.ne_inner = ne_inner
+        if dne_dx_inner is not None:
+            self.dne_dx_inner = dne_dx_inner
+        if ne_x0 is not None:
+            self.ne_x0 = ne_x0
 
         if clear_solution:
             for _attr in ('sol', 'sol_first', 'x_sol', 'ne_sol', 'dne_dx_sol',
@@ -471,6 +512,16 @@ class saarelma_connor:
         self.S_plasma = np.zeros(n_psi)
         self.V_plasma = np.zeros(n_psi)
 
+        # Magnetic axis, used to pick the closed core contour (not an open
+        # SOL / divertor-leg segment) at each psi level.  On double-null
+        # (e.g. SPARC / ARC) equilibria a given psi level also produces open
+        # contours that can be *longer* than the closed core surface, so the
+        # previous "longest segment" heuristic silently returned garbage
+        # volumes / areas (non-monotonic V, sign-flipping dV/dpsi).  Reuse the
+        # same selector as fsa() / calc_gradr().
+        R_axis = self.eq['raxis']
+        Z_axis = self.eq['zaxis']
+
         # Extract the flux surface contour from the 2D psi grid
         fig, ax = plt.subplots()
         for i in range(n_psi):
@@ -479,13 +530,15 @@ class saarelma_connor:
                             levels=[self.psi_pres[i]])
 
             segs = cs.allsegs[0]
-            if not segs:
+            seg = self._select_core_contour(segs, R_axis, Z_axis)
+            if seg is None:
+                # No closed contour around the axis at this psi level
+                # (e.g. exactly at / beyond the separatrix); filled from
+                # valid neighbours below.
                 self.S_plasma[i] = np.nan
                 self.V_plasma[i] = np.nan
                 continue
 
-            # Longest contour = the real flux surface, not islands
-            seg = max(segs, key=lambda s: len(s))
             R = seg[:, 0]
             Z = seg[:, 1]
 
@@ -508,6 +561,17 @@ class saarelma_connor:
             self.S_plasma[i] = 2.0 * np.pi * np.sum(0.5 * (R_i + R_ip) * dl) # m^2, total surface area of plasma
 
         plt.close(fig)
+
+        # Fill NaN entries (surfaces where no closed core contour was found,
+        # typically right at / beyond the separatrix on diverted equilibria)
+        # by extrapolating from the nearest valid neighbours, mirroring
+        # calc_gradr().
+        for arr in (self.S_plasma, self.V_plasma):
+            valid = np.isfinite(arr)
+            if valid.any() and not valid.all():
+                arr[:] = interp1d(self.psi_N_pres[valid], arr[valid],
+                                  kind='linear', bounds_error=False,
+                                  fill_value='extrapolate')(self.psi_N_pres)
 
     def calc_B(self,R_eval,Z_eval):
         """Calculate magnetic field at some point in the plasma
@@ -587,9 +651,10 @@ class saarelma_connor:
 
             # Plasma parameters (skip the magnetic axis to avoid degenerate zero-area/volume flux surface)
             self.Ip = self.eq['ip'] / 1e6 # MA, Plasma current
-            # self.pres = self.eq['pres'][1:] # pressure is NOT an input to this model
             self.psi_pres = np.linspace(self.eq['psimag'], self.eq['psibry'], len(self.eq['pres']))[1:]
             self.psi_N_pres = (self.psi_pres - self.eq['psimag']) / (self.eq['psibry'] - self.eq['psimag'])
+
+            # self.pres_gfile = self.eq['pres'][1:] # pressure is NOT an input to this model but using this for plotting - want to use pfile pressure instead
 
             # Grids
             self.rgrid = np.linspace(self.eq['rleft'],self.eq['rleft']+self.eq['rdim'],self.eq['nr']) # m, 1D R grid
@@ -600,7 +665,109 @@ class saarelma_connor:
 
             self.plasma_surface_area_and_volume()
 
-    def kprof_load(self,kprof_loc='p',kprof_fp=None):
+    def OMFITnc_load(self, filename):
+        """
+        Reads an OMFITnc file, averages T_e and n_e across the first dimension,
+        and interpolates them onto a common, unified psi_N grid.
+
+        Parameters:
+            filename (str): Path to the NetCDF file.
+
+        Returns:
+            tuple: (psi_N_unified, Te_1d, ne_1d) as 1D numpy arrays.
+            Te_1d in keV, ne_1d in m^-3.
+
+        # Example usage:
+        # psi_grid, Te_profile, ne_profile = self.OMFITnc_load('my_plasma_data.cdf')
+        """
+        from omfit_classes.omfit_nc import OMFITnc
+        nc = OMFITnc(filename)
+
+        def _nc_array(var_name):
+            """OMFITnc variables are SortedDicts; numeric data lives under 'data'."""
+            var = nc[var_name]
+            if hasattr(var, 'keys') and 'data' in var:
+                return np.asarray(var['data'], dtype=float)
+            return np.asarray(var, dtype=float)
+
+        def _nc_has(var_name):
+            return var_name in nc
+
+        def _reduce_time(arr):
+            """Average over a leading time axis if present."""
+            arr = np.asarray(arr, dtype=float)
+            if arr.ndim > 1:
+                return np.mean(arr, axis=0)
+            return arr
+
+        # 1. Extract and average the physics variables
+        Te_raw = _reduce_time(_nc_array('T_e'))
+        ne_raw = _reduce_time(_nc_array('n_e'))
+
+        # Convert Te to keV if the file stores eV (IDA OMFITnc files use eV)
+        te_unit = ''
+        if hasattr(nc['T_e'], 'keys') and 'unit' in nc['T_e']:
+            te_unit = str(nc['T_e']['unit']).lower()
+        if te_unit in ('ev', 'electron volt', 'electron-volt'):
+            Te_raw = Te_raw / 1e3
+        elif te_unit in ('kev',):
+            pass
+        elif np.nanmax(np.abs(Te_raw)) > 100:
+            # Heuristic: values >> 100 are almost certainly eV, not keV
+            Te_raw = Te_raw / 1e3
+
+        # 2. Determine psi_N grids (files may use psi_n / psi_N / separate Te,ne grids)
+        if _nc_has('psi_N_Te') and _nc_has('psi_N_ne'):
+            psi_Te = _reduce_time(_nc_array('psi_N_Te'))
+            psi_ne = _reduce_time(_nc_array('psi_N_ne'))
+        else:
+            for psi_key in ('psi_n', 'psi_N', 'psiN', 'psin'):
+                if _nc_has(psi_key):
+                    break
+            else:
+                raise KeyError(
+                    f"No psi_N grid found in {filename}. "
+                    f"Available keys: {[k for k in nc.keys() if not str(k).startswith('__')]}"
+                )
+            psi_shared = _reduce_time(_nc_array(psi_key))
+            psi_Te = psi_shared
+            psi_ne = psi_shared
+
+        # Keep only the closed-flux domain for interpolation onto [0, 1]
+        def _clip_profile(psi, prof):
+            psi = np.asarray(psi, dtype=float).ravel()
+            prof = np.asarray(prof, dtype=float).ravel()
+            order = np.argsort(psi)
+            psi, prof = psi[order], prof[order]
+            mask = (psi >= 0.0) & (psi <= 1.0)
+            if np.count_nonzero(mask) < 2:
+                mask = np.ones_like(psi, dtype=bool)
+            # Drop duplicate psi points that break interp1d
+            _, uniq = np.unique(psi[mask], return_index=True)
+            uniq = np.sort(uniq)
+            return psi[mask][uniq], prof[mask][uniq]
+
+        psi_Te, Te_raw = _clip_profile(psi_Te, Te_raw)
+        psi_ne, ne_raw = _clip_profile(psi_ne, ne_raw)
+        num_points = max(len(psi_Te), len(psi_ne))
+
+        # 3. Unified evaluation grid on [0, 1]
+        psi_N_unified = np.linspace(0.0, 1.0, num_points)
+
+        # 4. Interpolate both profiles onto the unified grid
+        Te_interp_func = interp1d(
+            psi_Te, Te_raw, kind='cubic', bounds_error=False, fill_value='extrapolate'
+        )
+        ne_interp_func = interp1d(
+            psi_ne, ne_raw, kind='cubic', bounds_error=False, fill_value='extrapolate'
+        )
+
+        Te_unified = Te_interp_func(psi_N_unified)
+        ne_unified = ne_interp_func(psi_N_unified)
+
+        return psi_N_unified, Te_unified, ne_unified
+
+    def kprof_load(self,kprof_loc='pfile',kprof_fp=None,T_prof=None,T_prof_psi_N=None,manual_profs=None):
         """Load kinetic equilibrium parameters using method specified by kprof_loc flag. 
         Parameters that will be loaded include: T_e, n_e
         Calculates: dn_e/dx|x=-inf, T_i
@@ -613,10 +780,14 @@ class saarelma_connor:
             which method to use to load kinetic parameters.
         kprof_fp : string
             filepath to kprof_loc-type file with kinetic parameters.
-             
+        T_prof : string
+            temperature profile if using the EPEDNN model
+        T_prof_psi_N : array
+            psi_N values at which T_e is evaluated if using the EPEDNN model
         """
 
-        if kprof_loc == 'p':
+        # currently self.T_e = self.T_e_pfile, fix when cleaning up code
+        if kprof_loc == 'pfile' and manual_profs is None: # use true pfile for n_e and T_e
 
             def read_pfile(path):
                 data = {}
@@ -639,126 +810,185 @@ class saarelma_connor:
 
             # Extract profiles
             pf = read_pfile(kprof_fp)
-            self.n_e_pfile = pf['ne(10^20/m^3)'] * 1e20 # n_e values (10^20/m^3 -> m^-3) evaluated at psi_ne_eval
-            self.T_e = pf['te(KeV)'] # T_e values (keV) evaluated at psi_Te_eval
-            self.T_e_K = self.T_e * 1e3 * 11604.52 # T_e values (K) evaluated at psi_Te_eval
-            self.psi_ne_eval = pf['ne(10^20/m^3)_psi'] # psi_N values at which n_e is evaluated]
-            self.psi_Te_eval = pf['te(KeV)_psi'] # psi_N values at which T_e is evaluated
 
+            # Store pfile information
+            self.T_e_pfile = pf['te(KeV)'] # T_e values (keV) evaluated at psi_Te_eval
+            self.T_e = self.T_e_pfile # keV
+            self.psi_Te_eval_pfile = pf['te(KeV)_psi'] # psi_N values at which T_e is evaluated
+            self.psi_Te_eval = self.psi_Te_eval_pfile # psi_N values at which T_e is evaluated
+
+            self.n_e_pfile = pf['ne(10^20/m^3)'] * 1e20 # n_e values (10^20/m^3 -> m^-3) evaluated at psi_ne_eval
+            self.psi_ne_eval = pf['ne(10^20/m^3)_psi'] # psi_N values at which n_e is evaluated
+
+        elif kprof_loc == 'pfile' and manual_profs is not None: # use manual profiles for T_e but not n_e
+            def read_pfile(path):
+                data = {}
+                key = ''
+                with open(path) as f:
+                    for line in f:
+                        if '3 N Z A' in line:
+                            break
+                        if line.startswith('201'):
+                            key = line.split()[2]
+                            data[key] = np.array([])
+                            data[f'{key}_psi'] = np.array([])
+                        else:
+                            psi, dat, _ = line.split()
+                            psi = float(psi)
+                            dat = float(dat)
+                            data[key] = np.append(data[key], dat)
+                            data[f'{key}_psi'] = np.append(data[f'{key}_psi'], psi)
+                return data
+
+            # Extract profiles
+            pf = read_pfile(kprof_fp)
+
+            # Store pfile information
+            self.n_e_pfile = pf['ne(10^20/m^3)'] * 1e20 # n_e values (10^20/m^3 -> m^-3) evaluated at psi_ne_eval
+            self.psi_ne_eval = pf['ne(10^20/m^3)_psi'] # psi_N values at which n_e is evaluated
+
+            # Store manual profiles information
+            self.T_e_pfile = manual_profs['Te'] # keV
+            self.T_e = self.T_e_pfile # keV
+            self.psi_Te_eval_pfile = manual_profs['psi_N_Te'] # psi_N values at which T_e is evaluated
+            self.psi_Te_eval = self.psi_Te_eval_pfile # psi_N values at which T_e is evaluated
+
+        elif kprof_loc == 'OMFITnc':
+            psi_N_unified, self.T_e_pfile, self.n_e_pfile = self.OMFITnc_load(kprof_fp)
+            self.T_e = self.T_e_pfile # keV
+            self.psi_Te_eval_pfile = psi_N_unified
+            self.psi_Te_eval = self.psi_Te_eval_pfile # psi_N values at which T_e is evaluated
+            self.psi_ne_eval = psi_N_unified
+
+        elif kprof_loc == 'manual rho grid':
+            # Specify full T_e and corresponding psi_N profile
+            # rho is treated as sqrt(psi_N): pass sqrt(psi_N) if your file's rho is toroidal.
+            self.T_e_pfile = manual_profs['Te'] # T_e values (keV) evaluated at psi_Te_eval
+            self.T_e = self.T_e_pfile # keV
+            self.psi_Te_eval_pfile = self.psi_N_pres[-1] * (manual_profs['rho_Te']**2) # psi_N values at which T_e is evaluated
+            self.psi_Te_eval = self.psi_Te_eval_pfile # psi_N values at which T_e is evaluated
+
+            # Specify n_e'(psi_N=0.85) and n_e(psi_N=1.0) boundary conditions
+            # n_e_pfile is only used for the cross_sections and the boundary conditions
+            self.n_e_pfile = manual_profs['ne'] * 1e20 # n_e values (10^20/m^3 -> m^-3) evaluated at psi_ne_eval
+            self.psi_ne_eval = self.psi_N_pres[-1] * (manual_profs['rho_ne']**2) # psi_N values at which n_e is evaluated
+
+            # Optional ion profiles. If omitted, Ti = T_rat * Te and ni = ne.
+            if 'Ti' in manual_profs and manual_profs['Ti'] is not None:
+                rho_Ti = manual_profs.get('rho_Ti', manual_profs['rho_Te'])
+                psi_Ti = self.psi_N_pres[-1] * (np.asarray(rho_Ti, dtype=float)**2)
+                Ti_keV = np.asarray(manual_profs['Ti'], dtype=float)
+                self.T_i_pfile = Ti_keV
+                self.psi_Ti_eval_pfile = psi_Ti
+                self.psi_Ti_eval = psi_Ti
+                # Working Ti on the Te psi_N grid (velocities / FSA use Te grid).
+                self.T_i = interp1d(
+                    psi_Ti, Ti_keV, kind='linear',
+                    bounds_error=False, fill_value='extrapolate'
+                )(self.psi_Te_eval)
+                self.T_i_from_profile = True
+            if 'ni' in manual_profs and manual_profs['ni'] is not None:
+                rho_ni = manual_profs.get('rho_ni', manual_profs['rho_ne'])
+                self.n_i_pfile = np.asarray(manual_profs['ni'], dtype=float) * 1e20  # 10^20/m^3 -> m^-3
+                self.psi_ni_eval = self.psi_N_pres[-1] * (np.asarray(rho_ni, dtype=float)**2)
+
+        elif kprof_loc == 'manual EPEDNN loop':
+            assert manual_profs is not None, 'T and n_e, n_CX, n_FC profiles must be provided if T_e_source is epednn'
+            self.T_e_pfile = manual_profs['Te'] # keV
+            self.T_e = self.T_e_pfile # keV
+            self.psi_Te_eval_pfile = manual_profs['psi_N_Te'] # psi_N values at which T_e is evaluated
+            self.psi_Te_eval = self.psi_Te_eval_pfile # psi_N values at which T_e is evaluated
+            self.n_e_pfile = manual_profs['ne'] # m^-3; n_e values evaluated at psi_ne_eval
+            self.psi_ne_eval = manual_profs['psi_N_n'] # psi_N values at which n_e is evaluated
+            self.nCX_manual = manual_profs['nCX'] # m^-3; evaluated at manual_profs['psi_N_n']
+            self.nFC_manual = manual_profs['nFC'] # m^-3; evaluated at manual_profs['psi_N_n']
+            self.psi_N_n_manual = manual_profs['psi_N_n'] # psi_N values at which n_e, n_CX, n_FC are evaluated
         else:
             assert False, 'kprof_loc method not supported'
 
-        if self.T_rat_flag:
-            self.T_i = self.T_e * self.T_rat # keV
-            self.T_i_K = self.T_i * 1e3 * 11604.52 # K
+        self.T_e_K = self.T_e * 1e3 * 11604.52 # T_e values (K) evaluated at psi_Te_eval
+
+        # Ion temperature: profile if provided above, else T_rat * Te.
+        if not getattr(self, 'T_i_from_profile', False):
+            if self.T_rat_flag:
+                self.T_i = self.T_e * self.T_rat # keV
+                self.T_i_pfile = self.T_e_pfile * self.T_rat
+                self.psi_Ti_eval = self.psi_Te_eval
+                self.psi_Ti_eval_pfile = self.psi_Te_eval_pfile
+            else:
+                raise NotImplementedError("T_rat_flag must be True when Ti is not provided")
+        self.T_i_K = self.T_i * 1e3 * 11604.52 # K
+
+        # Ion density: profile if provided above, else ni = ne (quasineutrality).
+        if not hasattr(self, 'n_i_pfile'):
+            self.n_i_pfile = np.asarray(self.n_e_pfile, dtype=float).copy()
+            self.psi_ni_eval = self.psi_ne_eval
 
 
-    def cross_section_rates(self,species='D'):
-        """Calculate the cross-sections for the ionization and charge-exchange cross-sections
-        Uses ADAS ADF01 qcx#h0_ex3#h1.dat to interpolate the charge-exchange cross-sections as a function of energy
-        Uses ADAS ADF23  to interpolate the ionization cross-sections as a function of energy
-        This is for deuterium only
+    def cross_section_rates(self,species='D',x_method='radas'):
+        """Calculate ionization and charge-exchange rate coefficients.
 
         Parameters
         ----------
         self : object
             instance of saarelma_connor class
         species : string
-            species of ions, currently supporting: D
-             
-        """     
+            species of ions: 'D' or 'D-T' (D-T averages D and T RADAS rates)
+        x_method : string
+            'radas' (ADF11 from local RADAS dumps) or 'adas' (bundled ADAS files)
+        """
 
-        if species == 'D':
-            
-            # charge-exchange cross-section
-            '''sigma_cx_perE = np.array([3.81*10**(-18), 3.85*10**(-18), 3.44*10**(-18), 2.71*10**(-18), 1.74*10**(-18), 8.10*10**(-20), 9.56*10**(-22), 1.46*10**(-23)]) # m^2
-            E = np.array([3.23*10**(-16), 9.68*10**(-16), 3.23*10**(-15), 6.45*10**(-15), 9.68*10**(-15), 3.23*10**(-14), 9.68*10**(-14), 2.26*10**(-13)]) # J
-            sigma_cx_interp = interp1d(E, sigma_cx_perE, kind='linear',fill_value='extrapolate',bounds_error=False)
-            self.sigma_cx = sigma_cx_interp(0.5 * (self.M_i*self.M_eff) * self.V_cx**2) # m^2, charge-exchange cross-section'''
+        if x_method == 'adas':
+            if species == 'D':
+                
+                # charge-exchange cross-section
+                '''sigma_cx_perE = np.array([3.81*10**(-18), 3.85*10**(-18), 3.44*10**(-18), 2.71*10**(-18), 1.74*10**(-18), 8.10*10**(-20), 9.56*10**(-22), 1.46*10**(-23)]) # m^2
+                E = np.array([3.23*10**(-16), 9.68*10**(-16), 3.23*10**(-15), 6.45*10**(-15), 9.68*10**(-15), 3.23*10**(-14), 9.68*10**(-14), 2.26*10**(-13)]) # J
+                sigma_cx_interp = interp1d(E, sigma_cx_perE, kind='linear',fill_value='extrapolate',bounds_error=False)
+                self.sigma_cx = sigma_cx_interp(0.5 * (self.M_i*self.M_eff) * self.V_cx**2) # m^2, charge-exchange cross-section'''
 
-            # ionization rate coefficient profile: scd_adas(n_e, T_e[eV]) at each psi_Te_eval point.
-            # also including CX rate coefficients from ADAS ADF11 https://open.adas.ac.uk/detail/adf11/ccd96/ccd96_d.dat
-            # n_e is given on psi_ne_eval, so interpolate it onto psi_Te_eval first.
+                # ionization rate coefficient profile: scd_adas(n_e, T_e[eV]) at each psi_Te_eval point.
+                # also including CX rate coefficients from ADAS ADF11 https://open.adas.ac.uk/detail/adf11/ccd96/ccd96_d.dat
+                # n_e is given on psi_ne_eval, so interpolate it onto psi_Te_eval first.
+                n_e_at_Te = interp1d(self.psi_ne_eval, self.n_e_pfile, kind='linear',
+                                    bounds_error=False, fill_value='extrapolate')(self.psi_Te_eval)
+                n_e_input = np.mean(n_e_at_Te)
+                T_e_eV = self.T_e * 1e3 # keV -> eV
+                self.S_i = np.array([
+                    # scd_adas(n_e_at_Te[i], T_e_eV[i]) for i in range(len(self.psi_Te_eval))
+                    scd_adas(n_e_input, T_e_eV[i]) for i in range(len(self.psi_Te_eval))
+                ]) # m^3/s, on psi_Te_eval
+                self.S_cx = scx_adas(np.ones_like(T_e_eV) * n_e_input, T_e_eV)
+
+            else:
+                assert False, 'species not supported for x_method=adas (use D)'
+        elif x_method == 'radas':
+            # RADAS ADF11 SCD (effective ionisation) and CCD (CX cross-coupling).
+            # Same evaluation pattern as adas: mean ne, rate vs Te profile.
+            # Tables are 2D (ne, Te); ne is fixed at the profile mean.
             n_e_at_Te = interp1d(self.psi_ne_eval, self.n_e_pfile, kind='linear',
-                                 bounds_error=False, fill_value='extrapolate')(self.psi_Te_eval)
-            n_e_input = np.mean(n_e_at_Te)
-            T_e_eV = self.T_e * 1e3 # keV -> eV
-            self.S_i = np.array([
-                # scd_adas(n_e_at_Te[i], T_e_eV[i]) for i in range(len(self.psi_Te_eval))
-                scd_adas(n_e_input, T_e_eV[i]) for i in range(len(self.psi_Te_eval))
-            ]) # m^3/s, on psi_Te_eval
-            self.S_cx = scx_adas(np.ones_like(T_e_eV) * n_e_input, T_e_eV)
+                                bounds_error=False, fill_value='extrapolate')(self.psi_Te_eval)
+            ne_arr = n_e_at_Te
+            # n_e_input = float(np.mean(n_e_at_Te))
+            # ne_arr = np.ones_like(T_e_eV) * n_e_input
+            T_e_eV = self.T_e * 1e3  # keV -> eV
 
+            if species == 'D':
+                self.S_i = np.asarray(scd_radas(ne_arr, T_e_eV, isotope='D'), dtype=float)
+                self.S_cx = np.asarray(scx_radas(ne_arr, T_e_eV, isotope='D'), dtype=float)
+            elif species == 'D-T':
+                S_i_D = np.asarray(scd_radas(ne_arr, T_e_eV, isotope='D'), dtype=float)
+                S_i_T = np.asarray(scd_radas(ne_arr, T_e_eV, isotope='T'), dtype=float)
+                S_cx_D = np.asarray(scx_radas(ne_arr, T_e_eV, isotope='D'), dtype=float)
+                S_cx_T = np.asarray(scx_radas(ne_arr, T_e_eV, isotope='T'), dtype=float)
+                self.S_i = 0.5 * (S_i_D + S_i_T)
+                self.S_cx = 0.5 * (S_cx_D + S_cx_T)
+            else:
+                assert False, "species must be 'D' or 'D-T' for x_method=radas"
+                            
         else:
-            assert False, 'species not supported'
+            assert False, f"x_method must be 'radas' or 'adas', got {x_method!r}"
 
-    def calc_volavgP(self):
-        """Calculate the volume-averaged pressure
-
-        Parameters
-        ----------
-        self : object
-            instance of saarelma_connor class
-
-        Sets
-        ----
-        self.volavgP : float
-            Volume-averaged pressure (same units as self.pres).
-        """
-
-        dV_dpsi = np.gradient(self.V_plasma, self.psi_N_pres)
-
-        if self.EPEDNN_betan == 'pfile':
-            pressure = (self.n_e_pres * (self.T_e_pres + self.T_i_pres)) * 1.60218e-19 # Pa
-            self.volavgP = (simpson(pressure * dV_dpsi, self.psi_N_pres)
-                            / simpson(dV_dpsi, self.psi_N_pres))
-        else:
-            assert False, 'EPEDNN_betan method not supported'
-
-            # In the future, the code below will be stitched with a core simulation
-            """
-            T_tot_xdofs = self.T_e_xdofs
-            if self.T_rat_flag: # use both electron and ion temperatures, neglect neutrals
-                T_i_xdofs = np.interp(self.x_sol, self.x_init, self.T_i_pres)
-                T_tot_xdofs = T_tot_xdofs + T_i_xdofs
-            ne = self.ne_sol + core_n_e
-            pressure = self.ne_sol * T_tot_xdofs * 1.60218e-19  # Pa, assuming quasi-neutrality
-
-            psi_N_xdofs = np.interp(self.x_sol, self.x_init, self.psi_N_pres) # convert x_dofs to psi_N
-            pressure = np.interp(self.psi_N_pres, psi_N_xdofs, pressure) # Pa on psi_N_pres grid
-
-            self.volavgP = (simpson(pressure * dV_dpsi, self.psi_N_pres)
-                            / simpson(dV_dpsi, self.psi_N_pres))
-            """
-
-
-    def calc_betan(self):
-        """Calculate the normalized beta
-
-        Parameters
-        ----------
-        self : object
-            instance of saarelma_connor class
-
-        Sets
-        -------
-        self.Betan : float
-            Normalized beta, dimensionless
-        """
-
-        self.calc_volavgP()
-
-        _, [B_R, B_Z, _] = self.calc_B(self.eq['rzout'][:, 0], self.eq['rzout'][:, 1])
-        bp_lcfs = np.sqrt(B_R**2 + B_Z**2)
-        bp_avg = np.mean(bp_lcfs)
-
-        betat = self.volavgP / (self.bt**2 / (2 * self.mu0))
-        self.betat = betat
-        # betap = self.volavgP / (bp_avg**2 / (2 * self.mu0))
-        # beta = ((1/betat) + (1/betap))**(-1)
-
-        # EPED / Troyon: β_N = β_t[%] * a * abs(B_t) [T] / I_p[MA] -> this is what OpenFUSIONToolkit uses for β_N
-        self.betan = 100 * betat * (self.a * abs(self.bt) / self.Ip)
 
     def form_factor(self,x,type = 'ex'):
         """Calculate the form factor for FC or charge-exchange cases
@@ -968,6 +1198,91 @@ class saarelma_connor:
         self.x_inner = x_new
         print(f"x_inner: {self.x_inner:.4f} m")
 
+    @staticmethod
+    def _select_core_contour(segs, R_axis, Z_axis, closure_tol=0.05):
+        """Pick the closed flux-surface contour that encloses the magnetic
+        axis from a list of matplotlib contour segments.
+
+        Previously the *longest* segment was used, but on double-null
+        (e.g. SPARC) or diverted equilibria a given psi level also produces
+        open SOL / divertor-leg / private-flux contours which can be longer
+        than the closed core surface.  Integrating over one of those open,
+        theta-folded curves silently corrupts the flux-surface average
+        (it even produced *negative* <|grad r|^2>).
+
+        Parameters
+        ----------
+        segs : list of (N, 2) ndarray
+            Contour segments (R, Z) for one psi level.
+        R_axis, Z_axis : float
+            Magnetic axis position (m).
+        closure_tol : float
+            Segment counts as closed if the gap between its endpoints is
+            below ``closure_tol`` times its perimeter.
+
+        Returns
+        -------
+        seg : ndarray or None
+            The longest closed segment enclosing the axis, or None if no
+            segment qualifies (caller should treat the surface as invalid,
+            e.g. NaN + neighbour fill).
+        """
+        candidates = []
+        for s in segs:
+            if len(s) < 4:
+                continue
+            perim = np.hypot(np.diff(s[:, 0]), np.diff(s[:, 1])).sum()
+            if perim <= 0.0:
+                continue
+            gap = np.hypot(s[0, 0] - s[-1, 0], s[0, 1] - s[-1, 1])
+            if gap > closure_tol * perim:
+                continue  # open contour (SOL / divertor leg)
+            if not _MplPath(s).contains_point((R_axis, Z_axis)):
+                continue  # closed but not around the axis (island etc.)
+            candidates.append(s)
+        if not candidates:
+            return None
+        return max(candidates, key=lambda s: len(s))
+
+    @staticmethod
+    def _sort_dedup_close_theta(theta_c, R_c, Z_c, min_dtheta=1e-12):
+        """Sort contour points by poloidal angle, drop near-duplicate
+        angles, and close the contour over a full 2*pi.
+
+        Near-duplicate angles (e.g. the coincident first/last vertices of
+        a closed matplotlib contour, or point clusters near an X-point)
+        create ~1e-16-wide intervals; Simpson's nonuniform weights blow up
+        on the huge interval-length ratios and amplify round-off into
+        O(1e-4) errors in the flux-surface average.
+
+        Parameters
+        ----------
+        theta_c, R_c, Z_c : ndarray
+            Poloidal angle and contour coordinates (unsorted).
+        min_dtheta : float
+            Minimum allowed angular spacing between consecutive points.
+
+        Returns
+        -------
+        theta_c, R_c, Z_c : ndarray
+            Sorted, deduplicated arrays with the closing point
+            (theta[0] + 2*pi, R[0], Z[0]) appended.
+        """
+        idx = np.argsort(theta_c)
+        theta_c, R_c, Z_c = theta_c[idx], R_c[idx], Z_c[idx]
+
+        keep = np.concatenate(([True], np.diff(theta_c) > min_dtheta))
+        theta_c, R_c, Z_c = theta_c[keep], R_c[keep], Z_c[keep]
+
+        # Close the contour so the integral spans a full 2*pi; drop the
+        # last point first if it would duplicate the closing point.
+        if theta_c[0] + 2 * np.pi - theta_c[-1] <= min_dtheta:
+            theta_c, R_c, Z_c = theta_c[:-1], R_c[:-1], Z_c[:-1]
+        theta_c = np.append(theta_c, theta_c[0] + 2 * np.pi)
+        R_c = np.append(R_c, R_c[0])
+        Z_c = np.append(Z_c, Z_c[0])
+        return theta_c, R_c, Z_c
+
     def calc_gradr(self):
         """Compute <|grad(r)|> at each flux surface.
 
@@ -1021,21 +1336,18 @@ class saarelma_connor:
             cs = ax.contour(self.rgrid, self.zgrid, self.psi_RZ,
                             levels=[psi_val])
             segs = cs.allsegs[0]
-            if not segs:
+            seg = self._select_core_contour(segs, R_axis, Z_axis)
+            if seg is None:
+                # No closed contour around the axis at this psi level
+                # (e.g. exactly at / beyond the separatrix); filled from
+                # valid neighbours below.
                 self.gradr_fsa[i] = np.nan
                 self.gradr2_fsa[i] = np.nan
                 continue
-
-            seg = max(segs, key=lambda s: len(s)) # longest contour = the real flux surface, not islands
             R_c, Z_c = seg[:, 0], seg[:, 1]
 
             theta_c = np.arctan2(Z_c - Z_axis, R_c - R_axis) # theta at all points on contour
-            idx = np.argsort(theta_c)
-            theta_c, R_c, Z_c = theta_c[idx], R_c[idx], Z_c[idx]
-
-            theta_c = np.append(theta_c, theta_c[0] + 2 * np.pi)
-            R_c = np.append(R_c, R_c[0])
-            Z_c = np.append(Z_c, Z_c[0])
+            theta_c, R_c, Z_c = self._sort_dedup_close_theta(theta_c, R_c, Z_c)
 
             # |grad(psi)| at each contour point from the equilibrium spline
             dpsi_dR = psi_spl(Z_c, R_c, dx=0, dy=1, grid=False) # value at each point on the contour
@@ -1582,7 +1894,8 @@ class saarelma_connor:
             secax = ax.secondary_xaxis('top',
                                     functions=(x_to_psiN, psiN_to_x))
             secax.set_xlabel(r"$\psi_N$")
-        plt.show()
+        # plt.show()
+        plt.savefig(f'{title}.png')
 
     @staticmethod
     def _build_petsc_solver_parameters(linear_solver="lu",
@@ -2420,24 +2733,18 @@ class saarelma_connor:
                             levels=[psi_val])
 
             segs = cs.allsegs[0]
-            if not segs:
-                continue
-
-            # longest contour = the real flux surface, not islands
-            seg = max(segs, key=lambda s: len(s))
+            # Closed contour around the axis = the real flux surface
+            # (not open SOL/divertor legs or islands).
+            seg = self._select_core_contour(segs, R_axis, Z_axis)
+            if seg is None:
+                continue  # stays NaN; callers interpolate over gaps
             R_c, Z_c = seg[:, 0], seg[:, 1] # R, Z coordinates of the contour
 
             # poloidal angle measured from the magnetic axis
             # R_c_ax = (((R_c - R_axis)**2) + ((Z_c - Z_axis)**2))**0.5
             # theta_c = np.arcsin( (Z_c - Z_axis) / R_c_ax )
             theta_c = np.arctan2(Z_c - Z_axis, R_c - R_axis) # theta at all points on contour
-            idx = np.argsort(theta_c)
-            theta_c, R_c, Z_c = theta_c[idx], R_c[idx], Z_c[idx]
-
-            # close the contour so the integral spans a full 2*pi
-            theta_c = np.append(theta_c, theta_c[0] + 2 * np.pi)
-            R_c = np.append(R_c, R_c[0])
-            Z_c = np.append(Z_c, Z_c[0])
+            theta_c, R_c, Z_c = self._sort_dedup_close_theta(theta_c, R_c, Z_c)
 
             A_c = A_spl(Z_c, R_c, grid=False)
 
@@ -2481,8 +2788,154 @@ class saarelma_connor:
         return A_interp(self.psi_RZ_N)
 
 
-    def setup_epednn(self):
-        """Once a pedestal density profile is calculated, feed this profile to EPED and run EPED or EPEDNN to determine pedestal pressure height and width
+
+    def calc_volavgP(self,x_ne,ne_pedestal,psiN_Te,Te_prev,EPEDNN_core='pfile',pres_gfile=False):
+        """Calculate the volume-averaged pressure
+
+        Parameters
+        ----------
+        self : object
+            instance of saarelma_connor class
+        x_ne : array
+            x values at which the ne model is evaluated (ne is only in pedestal)
+        ne_pedestal : array
+            pedestal density profile in m^-3
+        psiN_Te : array
+            psi_N values at which the Te model is evaluated (Te is for the full plasma)
+        Te_prev : array
+            previous temperature profile in eV
+        EPEDNN_core : string
+            'pfile' 
+            'pfile T, stiched ne'
+            'previous T, stiched ne'
+        pres_gfile : boolean
+            if True, use the pressure from the g-file
+
+        Sets
+        ----
+        self.volavgP : float
+            Volume-averaged pressure (same units as self.pres).
+        """
+
+        if pres_gfile: 
+            pressure = self.eq['pres']
+            psi_N_plasma = self.psi_N_pres
+        else:
+            if EPEDNN_core == 'pfile': # always fixed to p-file n_e and T_e
+                psi_N_plasma = self.psi_N_pres
+                n_e_plasma = interp1d(self.psi_N_pres, self.n_e_pres, kind='linear', bounds_error=False, fill_value='extrapolate')(psi_N_plasma)
+                T_tot_plasma = interp1d(self.psi_N_pres, self.T_e_pres_pfile + self.T_i_pres_pfile, kind='linear', bounds_error=False, fill_value='extrapolate')(psi_N_plasma)
+
+            elif EPEDNN_core == 'pfile T, stiched ne': # pfile T_e and stiched n_e
+                # Calculate core n_e
+                psi_N_core = np.linspace(0, self.psi_N_inner_boundary, 75)
+                n_e_core = interp1d(self.psi_ne_eval, self.n_e_pfile, kind='linear', bounds_error=False, fill_value='extrapolate')(psi_N_core)
+                
+                # Calculate total n_e and T_e
+                # psi_N_ped = interp1d(self.x_init, self.psi_N_pres, kind='linear', bounds_error=False, fill_value='extrapolate')(self.x_dofs_si)
+                psi_N_ped = interp1d(self.x_init, self.psi_N_pres, kind='linear', bounds_error=False, fill_value='extrapolate')(x_ne)
+                psi_N_plasma = np.concatenate([psi_N_core, psi_N_ped])
+                n_e_plasma = np.concatenate([n_e_core, ne_pedestal])
+
+                # x_dofs_si is in Firedrake DOF order (not spatial); sort to psi_N
+                # before np.gradient (same issue as dpdx in update_alpha).
+                sort_idx = np.argsort(psi_N_plasma)
+                psi_N_plasma = psi_N_plasma[sort_idx]
+                n_e_plasma = n_e_plasma[sort_idx]
+                _, uniq_idx = np.unique(psi_N_plasma, return_index=True)
+                psi_N_plasma = psi_N_plasma[uniq_idx]
+                n_e_plasma = n_e_plasma[uniq_idx]
+
+                T_tot_plasma = interp1d(self.psi_N_pres, self.T_e_pres + self.T_i_pres, kind='linear', bounds_error=False, fill_value='extrapolate')(psi_N_plasma)
+
+            elif EPEDNN_core == 'previous T, stiched ne': # previous T_e and stiched n_e
+                # Calculate core n_e
+                psi_N_core = np.linspace(0, self.psi_N_inner_boundary, 75)
+                n_e_core = interp1d(self.psi_ne_eval, self.n_e_pfile, kind='linear', bounds_error=False, fill_value='extrapolate')(psi_N_core)
+                
+                # Calculate total n_e and T_e
+                # psi_N_ped = interp1d(self.x_init, self.psi_N_pres, kind='linear', bounds_error=False, fill_value='extrapolate')(self.x_dofs_si)
+                psi_N_ped = interp1d(self.x_init, self.psi_N_pres, kind='linear', bounds_error=False, fill_value='extrapolate')(x_ne)
+                psi_N_plasma = np.concatenate([psi_N_core, psi_N_ped])
+                n_e_plasma = np.concatenate([n_e_core, ne_pedestal])
+
+                # x_dofs_si is in Firedrake DOF order (not spatial); sort to psi_N
+                # before np.gradient (same issue as dpdx in update_alpha).
+                sort_idx = np.argsort(psi_N_plasma)
+                psi_N_plasma = psi_N_plasma[sort_idx]
+                n_e_plasma = n_e_plasma[sort_idx]
+                _, uniq_idx = np.unique(psi_N_plasma, return_index=True)
+                psi_N_plasma = psi_N_plasma[uniq_idx]
+                n_e_plasma = n_e_plasma[uniq_idx]
+
+                if self.T_rat_flag:
+                    Ti_prev = Te_prev * self.T_rat
+                else:
+                    raise ValueError('T_rat_flag must be True if T_rat is provided')
+                T_tot_plasma = interp1d(psiN_Te, Te_prev + Ti_prev, kind='linear', bounds_error=False, fill_value='extrapolate')(psi_N_plasma)
+
+            elif EPEDNN_core == 'previous T, varying ne': # stiched T_e and varyped outputted n_e
+                raise NotImplementedError('previous T, varying ne is not yet implemented')
+
+            else:
+                assert False, 'EPEDNN_betan method not supported'
+
+                # In the future, the code below will be stitched with a core simulation
+                """
+                T_tot_xdofs = self.T_e_xdofs
+                if self.T_rat_flag: # use both electron and ion temperatures, neglect neutrals
+                    T_i_xdofs = np.interp(self.x_sol, self.x_init, self.T_i_pres)
+                    T_tot_xdofs = T_tot_xdofs + T_i_xdofs
+                ne = self.ne_sol + core_n_e
+                pressure = self.ne_sol * T_tot_xdofs * 1.60218e-19  # Pa, assuming quasi-neutrality
+
+                psi_N_xdofs = np.interp(self.x_sol, self.x_init, self.psi_N_pres) # convert x_dofs to psi_N
+                pressure = np.interp(self.psi_N_pres, psi_N_xdofs, pressure) # Pa on psi_N_pres grid
+
+                self.volavgP = (simpson(pressure * dV_dpsi, self.psi_N_pres)
+                                / simpson(dV_dpsi, self.psi_N_pres))
+                """
+
+            pressure = (n_e_plasma * T_tot_plasma) * constants.e # Pa
+
+        # Calculate pressure and volavgP
+        V_full_plasma = interp1d(self.psi_N_pres, self.V_plasma, kind='linear', bounds_error=False, fill_value='extrapolate')(psi_N_plasma)
+        dV_dpsi = np.gradient(V_full_plasma, psi_N_plasma)
+        self.volavgP = (simpson(pressure * dV_dpsi, psi_N_plasma)
+                        / simpson(dV_dpsi, psi_N_plasma))
+
+    def calc_betan(self,x_ne,ne_pedestal,psiN_Te,Te_prev,EPEDNN_core='pfile',pres_gfile=False):
+        """Calculate the normalized beta
+
+        Parameters
+        ----------
+        self : object
+            instance of saarelma_connor class
+
+        Sets
+        -------
+        self.Betan : float
+            Normalized beta, dimensionless
+        """
+
+        self.calc_volavgP(x_ne,ne_pedestal,psiN_Te,Te_prev,EPEDNN_core,pres_gfile)
+
+        _, [B_R, B_Z, _] = self.calc_B(self.eq['rzout'][:, 0], self.eq['rzout'][:, 1])
+        bp_lcfs = np.sqrt(B_R**2 + B_Z**2)
+        # bp_avg = np.mean(bp_lcfs)
+
+        betat = self.volavgP / (self.bt**2 / (2 * self.mu0))
+        self.betat = betat
+        # betap = self.volavgP / (bp_avg**2 / (2 * self.mu0))
+        # beta = ((1/betat) + (1/betap))**(-1)
+
+        # EPED / Troyon: β_N = β_t[%] * a * abs(B_t) [T] / I_p[MA] -> this is what OpenFUSIONToolkit uses for β_N
+        if self.verbose:
+            print(f'betat: {betat}, a: {self.a}, bt: {self.bt}, Ip: {self.Ip}')
+        self.betan = 100 * betat * (self.a * abs(self.bt) / abs(self.Ip))
+
+    def setup_epednn(self, model='EPED1'):
+        """Setup the EPEDNN model with quantities from the Saarelma-Connor setup
 
         Parameters
         ----------
@@ -2499,112 +2952,220 @@ class saarelma_connor:
 
         print("Setting up EPEDNN...")
 
-        # Requires dependency "juliacall" to translate Python inputs to FUSE EPED.jl
-        # Requires dependency EPEDNN
+        if model == 'EPED1':
+            # Requires dependency "juliacall" to translate Python inputs to FUSE EPED.jl
+            # Requires dependency EPEDNN
 
-        import juliapkg
+            import juliapkg
 
-        # 1. Tell juliapkg to add your local EPEDNN package in development mode.
-        # This registers it with the isolated Julia environment PythonCall uses.
-        # Pass the UUID explicitly here:
-        juliapkg.add(
-            "EPEDNN", 
-            uuid="e64856f0-3bb8-4376-b4b7-c03396503991", 
-            path="/Users/nelsonlab/codes/saarelma-conner-ped/dependencies/EPEDNN.jl", 
-            dev=True
-        )
+            # 1. Tell juliapkg to add your local EPEDNN package in development mode.
+            # This registers it with the isolated Julia environment PythonCall uses.
+            epednn_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "dependencies",
+                "EPEDNN.jl",
+            )
+            if not os.path.isdir(epednn_path):
+                raise FileNotFoundError(
+                    f"EPEDNN.jl not found at {epednn_path}. "
+                    "Initialize it with: git submodule update --init dependencies/EPEDNN.jl"
+                )
+            juliapkg.add(
+                "EPEDNN",
+                uuid="e64856f0-3bb8-4376-b4b7-c03396503991",
+                path=epednn_path,
+                dev=True,
+            )
 
-        # 2. Resolve and instantiate. THIS is what fixes your missing dependency error!
-        juliapkg.resolve()
+            # 2. Resolve and instantiate. THIS is what fixes your missing dependency error!
+            juliapkg.resolve()
 
-        # 3. Now that the environment is set up, load juliacall and your package
-        from juliacall import Main as jl
-        jl.seval('using EPEDNN')
+            # 3. Now that the environment is set up, load juliacall and your package
+            from juliacall import Main as jl
+            jl.seval('using EPEDNN')
 
-        # from juliacall import Main as jl
+            # from juliacall import Main as jl
 
-        # 1. Load the Julia EPEDNN module (Assuming EPEDNN is already installed in your Julia environment)
-        '''
-            # To install EPEDNN, run the following command in your terminal:
-            conda activate sc_ped
-            cd /Users/nelsonlab/codes/saarelma-conner-ped
-            julia
+            # 1. Load the Julia EPEDNN module (Assuming EPEDNN is already installed in your Julia environment)
+            '''
+                # To install EPEDNN, run the following command in your terminal:
+                conda activate sc_ped
+                cd /Users/nelsonlab/codes/saarelma-conner-ped
+                julia
 
-            # if you need to install julia, run the following command in your terminal:
-            curl -fsSL https://install.julialang.org | sh
-            # then restart terminal
-            julia --version
-            # if this doesn't work, you could try the following although I did not verify this works:
-            echo 'export PATH="$HOME/.juliaup/bin:$PATH"' >> ~/.zshrc
-            source ~/.zshrc
-            julia --version
+                # if you need to install julia, run the following command in your terminal:
+                curl -fsSL https://install.julialang.org | sh
+                # then restart terminal
+                julia --version
+                # if this doesn't work, you could try the following although I did not verify this works:
+                echo 'export PATH="$HOME/.juliaup/bin:$PATH"' >> ~/.zshrc
+                source ~/.zshrc
+                julia --version
 
-            # Then in Julia:
-            using Pkg
-            Pkg.activate(".")  # optional but recommended: use this repo as the active Julia project
-            Pkg.develop(path="dependencies/EPEDNN.jl")
-            Pkg.instantiate()
+                # Then in Julia:
+                using Pkg
+                Pkg.activate(".")  # optional but recommended: use this repo as the active Julia project
+                Pkg.develop(path="dependencies/EPEDNN.jl")
+                Pkg.instantiate()
 
-            #Then in Julia: 
-            using EPEDNN
-        '''
-        # you can run Julia commands in Python using jl.seval('command')
-        # jl.seval('using Pkg')
-        # jl.seval('Pkg.activate(".")  # optional but recommended: use this repo as the active Julia project')
-        # jl.seval('Pkg.develop(path="/Users/nelsonlab/codes/saarelma-conner-ped/dependencies/EPEDNN.jl")')
-        # jl.seval('Pkg.instantiate()')
-        # jl.seval('using EPEDNN')
+                #Then in Julia: 
+                using EPEDNN
 
-        # 2. Load the pre-trained EPED neural network model
-        # This mimics the EPEDNN.loadmodelonce("EPED1NNmodel.bson") step
-        model_filename = "EPED1NNmodel.bson" 
-        self.epednn_model = jl.EPEDNN.loadmodelonce(model_filename)
+
+                Make sure that EPEDNN submodule is installed, the General Julia package registry is installed, and juliacall and juliapkg are installed.
+                The following commands may help:
+
+                pip install juliapkg
+                git submodule update --init dependencies/EPEDNN.jl
+                # Only needed if juliapkg fails on registry download:
+                git clone --depth 1 https://github.com/JuliaRegistries/General.git \
+                ~/.julia/registries/General
+                pip install juliacall
+            '''
+            # you can run Julia commands in Python using jl.seval('command')
+            # jl.seval('using Pkg')
+            # jl.seval('Pkg.activate(".")  # optional but recommended: use this repo as the active Julia project')
+            # jl.seval('Pkg.develop(path="/Users/nelsonlab/codes/saarelma-conner-ped/dependencies/EPEDNN.jl")')
+            # jl.seval('Pkg.instantiate()')
+            # jl.seval('using EPEDNN')
+
+            # 2. Load the pre-trained EPED neural network model
+            # This mimics the EPEDNN.loadmodelonce("EPED1NNmodel.bson") step
+            model_filename = "EPED1NNmodel.bson" 
+            self.epednn_model = jl.EPEDNN.loadmodelonce(model_filename)
+        elif model == 'EPED_SPARC':
+            # Vendored package lives at dependencies/epednn_mit/src/epednn_mit/;
+            # it is not installed into the env by default, so put src/ on sys.path.
+            import sys
+            from pathlib import Path
+            epednn_root = Path(__file__).resolve().parent.parent / "dependencies" / "epednn_mit"
+            epednn_src = epednn_root / "src"
+            if not epednn_src.is_dir():
+                raise FileNotFoundError(
+                    f"epednn_mit not found at {epednn_src}. "
+                    "Expected dependencies/epednn_mit/src in the repo."
+                )
+            if str(epednn_src) not in sys.path:
+                sys.path.insert(0, str(epednn_src))
+            from epednn_mit.models.sparc.tensorflow_model import generate_epednn_mit_sparc_tensorflow
+            from epednn_mit.utils.load import load_weights
+            weights_dir = epednn_src / "epednn_mit" / "models" / "sparc"
+            weights = load_weights(sorted(weights_dir.glob("*sparc*.pkl")))
+            if not weights:
+                raise FileNotFoundError(f"No *sparc*.pkl weights found in {weights_dir}")
+            self.epednn_model = generate_epednn_mit_sparc_tensorflow(weights)
+
         self.bt = np.array(self.calc_B(self.eq['raxis'],self.eq['zaxis'])[1][2])
+        print(f'bt: {self.bt}')
 
 
-    def feed_epednn(self, ne=None):
-        """Feed the pedestal pressure and width to the EPEDNN model"""
+    def feed_epednn(self, model='EPED1', ne_ped=None, x_ne=None, psiN_Te=None, Te_prev=None, EPEDNN_core='pfile', pres_gfile=False):
+        """Feed the Saarelma-Connor solution to the EPEDNN model"""
         
         # Define inputs in Python
         # These map exactly to the InputEPED struct we saw in the Julia code
-        if ne==None:
-            self.neped = interp1d(self.x_sol, self.ne_sol, kind='linear', bounds_error=False, fill_value='extrapolate')(self.x_inner) / (1e19) # m^-3 -> 10^19 m^-3
+        if ne_ped is None:
+            self._neped = interp1d(self.x_sol, self.ne_sol, kind='linear', bounds_error=False, fill_value='extrapolate')(self.x_inner) / (1e19) # m^-3 -> 10^19 m^-3
+            self._x_ne = self.x_sol
         else:
-            self.neped = ne
-        self.calc_betan()
+            self._neped = ne_ped
+            if x_ne is None:
+                print('Warning: Most functionalities require x_ne to be provided if ne_ped is provided')
+                # assert False, 'x_ne must be provided if ne_ped is provided'
+                self._x_ne = None
+            else:
+                self._x_ne = x_ne
+        self.calc_betan(self._x_ne,self._neped,psiN_Te,Te_prev,EPEDNN_core,pres_gfile)
+        print(f'betan: {self.betan}')
+
+        if self._x_ne is None:
+            ne_ped_h = self._neped
+        else:
+            ne_ped_h = interp1d(self._x_ne, self._neped, kind='linear', bounds_error=False, fill_value='extrapolate')(self.x_inner) / (1e19) # m^-3 -> 10^19 m^-3
+
         inputs = {
             "a": float(self.a),           # Minor radius (m)
             "betan": float(self.betan[0]),       # Normalized beta
             "bt": float(abs(self.bt[0])),                # Toroidal magnetic field at the magnetic axis (T)
             "delta": float(self.delta),       # Effective triangularity
-            "ip": float(self.Ip),          # Plasma current (MA)
+            "ip": float(abs(self.Ip)),          # Plasma current (MA)
             "kappa": float(self.kappa),       # Elongation
             "m": float(self.M_eff),           # Effective mass (must be 2.0 for D or 2.5 for D-T)
-            "neped": float(self.neped),       # Pedestal density (in 10^19 m^-3)
+            "neped": float(ne_ped_h),       # Pedestal density (in 10^19 m^-3)
             "r": float(self.Rmajor),           # Major radius (m)
             "zeffped": float(self.Z_i)      # Effective charge
         }
+        print(inputs)
 
-        # Call the Julia model using the Python inputs
-        # We pass the inputs into the Julia function, along with the keyword arguments
-        solution = self.epednn_model(
-            inputs["a"], 
-            inputs["betan"], 
-            inputs["bt"], 
-            inputs["delta"],
-            inputs["ip"], 
-            inputs["kappa"], 
-            inputs["m"], 
-            inputs["neped"],
-            inputs["r"], 
-            inputs["zeffped"],
-            only_powerlaw=False,        # Set to True if you only want the scaling law
-            warn_nn_train_bounds=True   # Warns if inputs are outside the training data. Good for debugging
-        )
+        if model == 'EPED1':
+            # Call the Julia model using the Python inputs
+            # We pass the inputs into the Julia function, along with the keyword arguments
+            solution = self.epednn_model(
+                inputs["a"], 
+                inputs["betan"], 
+                inputs["bt"], 
+                inputs["delta"],
+                inputs["ip"], 
+                inputs["kappa"], 
+                inputs["m"], 
+                inputs["neped"],
+                inputs["r"], 
+                inputs["zeffped"],
+                only_powerlaw=False,        # Set to True if you only want the scaling law
+                warn_nn_train_bounds=True   # Warns if inputs are outside the training data. Good for debugging
+            )
 
-        # Extract the results back into Python
-        # The solution structure has pressure and width for different modes (GH, G, H)
-        self.pedestal_pressure = solution.pressure.GH.H  # in MPa
-        self.pedestal_width = solution.width.GH.H        # in normalized poloidal flux
+            # Extract the results back into Python
+            # The solution structure has pressure and width for different modes (GH, G, H)
+            self.pedestal_pressure = solution.pressure.GH.H  # in MPa
+            self.pedestal_width = solution.width.GH.H        # in normalized poloidal flux
 
-        return self.pedestal_pressure, self.pedestal_width
+
+        elif model == 'EPED_SPARC':
+            ''' Training dataset was on (in order of input position from the EPEDNN_MIT README): 
+            Ip:     [  1.6  , 14.3   ]
+            Bt:     [  7.2  , 12.2   ]
+            R:      [  1.85 ,  1.85  ]
+            a:      [  0.57 ,  0.57  ]
+            kappa:  [  1.53 ,  2.29  ]
+            delta:  [  0.39 ,  0.59  ]
+            neped:  [  2.84 , 90.235 ]
+            betan:  [  0.8  ,  1.6   ]
+            zeff:   [  1.3  ,  2.5   ]
+            '''
+            if (inputs["bt"] - 12.2 < 0.5) and (inputs["bt"] > 12.2):
+                print('Warning: bt is close to 12.2 but is greater than 12.2, setting bt to 12.2')
+                inputs["bt"] = 12.2
+            if (inputs["a"] - 0.57 < 1e-3) and (inputs["a"] != 0.57):
+                print('Warning: a is close to 0.57, setting a to 0.57 or else EPEDNN behaves badly')
+                inputs["a"] = 0.57
+            if (inputs["r"] - 1.85 < 1e-3) and (inputs["r"] != 1.85):
+                print('Warning: r is close to 1.85, setting r to 1.85 or else EPEDNN behaves badly')
+                inputs["r"] = 1.85
+            
+            x = np.atleast_2d([
+                inputs["ip"], 
+                inputs["bt"], 
+                inputs["r"], 
+                inputs["a"], 
+                inputs["kappa"], 
+                inputs["delta"], 
+                inputs["neped"], 
+                inputs["betan"], 
+                inputs["zeffped"]
+            ])
+            solution = self.epednn_model.predict(x)[0]  # [[ped_height, ped_width]]
+            print(solution)
+            self.pedestal_pressure = solution[0] / 1000     # in MPa -> kPa
+            self.pedestal_width = solution[1]              # in normalized poloidal flux
+
+        # Apply ELM-free regime scaling
+        if self.regime_flag == 'PT H-mode':
+            pass
+        elif self.regime_flag == 'NT':
+            self.pedestal_pressure = self.pedestal_pressure * self.NT_scaling
+            raise NotImplementedError('NT ELM-free regime scaling is not yet implemented')
+        else:
+            assert False, 'specified regime_flag not supported'
+
+        return self.pedestal_pressure, self.pedestal_width, self.betan
