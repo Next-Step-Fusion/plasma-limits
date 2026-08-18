@@ -175,7 +175,8 @@ def profiles_loop_solve(
     betan = -1 # initialize to -1 to indicate that betan is not yet calculated
 
     for eped_iter in range(eped_iter_max):
-        print(f"EPEDNN-SC Loop Iter {eped_iter}")
+        print("------------------------------------------------")
+        print(f"ESCAPE Loop Iter {eped_iter}")
 
         # Run solver and save outputs
         if eped_iter == 0:
@@ -218,7 +219,7 @@ def profiles_loop_solve(
         psi_to_x = interp1d(psi_N_pres, x_grid_full, kind='linear',
                             bounds_error=False, fill_value='extrapolate')
         psi_ped_grid = np.linspace(psi_N_inner, 1.0, x_res)
-        x_ped_grid = psi_to_x(psi_ped_grid)
+        # x_ped_grid = psi_to_x(psi_ped_grid)
 
         # --- Feed best profile into EPEDNN --------------------------------
         if eped_iter == 0:
@@ -282,16 +283,16 @@ def profiles_loop_solve(
         psi_N_Te_new = np.concatenate([psi_prev[keep], psi_tanh])
         T_prof_keV = np.concatenate([Te_prev_keV[keep] + T_e_offset, Te_tanh_eV / 1e3])
 
-        psi_N_inner_boundary_new = psi_ped
+        # psi_N_inner_boundary_new = psi_ped
 
         if verbose:  # collect profile data for post-loop plotting
             Te_spliced_eV = T_prof_keV * 1e3
-            print(f"  Te_ped = {Te_ped_eV:.1f} eV, T_sep = {T_sep_eV:.1f} eV "
-                  f"(ne_ped = {ne_ped_val:.3e} m^-3, psi_ped = {psi_ped:.4f}, "
-                  f"Delta = {Delta:.4f})")
-            print(f"  psi_N_inner_boundary_new = {psi_N_inner_boundary_new:.4f}")
-            og_Te_peak = float(interp1d(psi_prev, Te_prev_keV * 1e3, kind='linear',
-                                        bounds_error=False, fill_value='extrapolate')(psi_ped))
+            # print(f"  Te_ped = {Te_ped_eV:.1f} eV, T_sep = {T_sep_eV:.1f} eV "
+            #       f"(ne_ped = {ne_ped_val:.3e} m^-3, psi_ped = {psi_ped:.4f}, "
+            #       f"Delta = {Delta:.4f})")
+            # print(f"  psi_N_inner_boundary_new = {psi_N_inner_boundary_new:.4f}")
+            # og_Te_peak = float(interp1d(psi_prev, Te_prev_keV * 1e3, kind='linear',
+            #                             bounds_error=False, fill_value='extrapolate')(psi_ped))
             # print(f"Percent change from previous T_e at psi_ped = "
             #       f"{(100*(Te_ped_eV - og_Te_peak) / og_Te_peak):.4f}")
 
@@ -299,20 +300,20 @@ def profiles_loop_solve(
                 te_plot_profiles.append({
                     'psi_N': np.asarray(psi_prev, dtype=float),
                     'y': np.asarray(Te_prev_keV * 1e3, dtype=float),
-                    'label': 'p-file $T_e$',
+                    'label': 'Reference $T_e$',
                     'ls': '--',
                 })
                 ne_plot_profiles.append({
                     'psi_N': np.asarray(base_model.psi_N_pres, dtype=float),
                     'y': np.asarray(base_model.n_e_pres, dtype=float) / 1e19,
-                    'label': 'p-file $n_e$',
+                    'label': 'Reference $n_e$',
                     'ls': '--',
                 })
 
             te_plot_profiles.append({
                 'psi_N': np.asarray(psi_N_Te_new, dtype=float),
                 'y': np.asarray(Te_spliced_eV, dtype=float),
-                'label': f'Iter {eped_iter}',
+                'label': f'ESCAPE iteration {eped_iter}',
                 'ls': '-',
             })
 
@@ -323,7 +324,7 @@ def profiles_loop_solve(
             ne_plot_profiles.append({
                 'psi_N': psi_N_ne[sort_idx],
                 'y': (best_ne[sort_idx] / 1e19),
-                'label': f'Iter {eped_iter}',
+                'label': f'ESCAPE iteration {eped_iter}',
                 'ls': '-',
             })
 
@@ -386,14 +387,14 @@ def profiles_loop_solve(
 
         fig, ax = plt.subplots(figsize=(6, 4))
         for prof, color in zip(te_plot_profiles, te_colors):
-            ax.plot(prof['psi_N'], prof['y'], lw=2, ls=prof['ls'],
+            ax.plot(prof['psi_N'], prof['y'] / 1e3, lw=2, ls=prof['ls'],
                     color=color, label=prof['label'])
         ax.set_xlabel(r'$\psi_N$')
-        ax.set_ylabel(r'$T_e$ [eV]')
+        ax.set_ylabel(r'$T_e$ [keV]')
         ax.set_title('Solved $T_e$ profiles')
         ax.legend()
         ax.grid(alpha=0.3)
-        ax.set_xlim(0.8, 1.0)
+        ax.set_xlim(psi_N_inner, 1.0)
         fig.tight_layout()
 
         fig1, ax1 = plt.subplots(figsize=(6, 4))
@@ -405,8 +406,8 @@ def profiles_loop_solve(
         ax1.set_title('Solved $n_e$ profiles')
         ax1.legend()
         ax1.grid(alpha=0.3)
-        ax1.set_xlim(0.8, 1.0)
+        ax1.set_xlim(psi_N_inner, 1.0)
         fig1.tight_layout()
         plt.show()
 
-    return pedestal_width, pedestal_height
+    return pedestal_width, pedestal_height, sol

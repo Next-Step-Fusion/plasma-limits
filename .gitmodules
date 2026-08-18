@@ -1,0 +1,9 @@
+[submodule "src/pedestal_prediction/dependencies/EPEDNN.jl"]
+	path = src/pedestal_prediction/dependencies/EPEDNN.jl
+	url = https://github.com/ProjectTorreyPines/EPEDNN.jl.git
+[submodule "src/pedestal_prediction/dependencies/OpenFUSIONToolkit"]
+	path = src/pedestal_prediction/dependencies/OpenFUSIONToolkit
+	url = https://github.com/OpenFUSIONToolkit/OpenFUSIONToolkit.git
+[submodule "src/pedestal_prediction/dependencies/epednn_mit"]
+	path = src/pedestal_prediction/dependencies/epednn_mit
+	url = https://github.com/aaronkho/epednn_mit.git

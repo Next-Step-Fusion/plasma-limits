@@ -903,6 +903,16 @@ class saarelma_connor:
             self.nCX_manual = manual_profs['nCX'] # m^-3; evaluated at manual_profs['psi_N_n']
             self.nFC_manual = manual_profs['nFC'] # m^-3; evaluated at manual_profs['psi_N_n']
             self.psi_N_n_manual = manual_profs['psi_N_n'] # psi_N values at which n_e, n_CX, n_FC are evaluated
+
+        elif kprof_loc == 'manual profs':
+            assert manual_profs is not None, 'T and n_e, profiles must be provided'
+            self.T_e_pfile = manual_profs['Te'] # keV
+            self.T_e = self.T_e_pfile # keV
+            self.psi_Te_eval_pfile = manual_profs['psi_N_Te'] # psi_N values at which T_e is evaluated
+            self.psi_Te_eval = self.psi_Te_eval_pfile # psi_N values at which T_e is evaluated
+            self.n_e_pfile = manual_profs['ne'] # m^-3; n_e values evaluated at psi_ne_eval
+            self.psi_ne_eval = manual_profs['psi_N_ne'] # psi_N values at which n_e is evaluated
+
         else:
             assert False, 'kprof_loc method not supported'
 
@@ -3056,7 +3066,7 @@ class saarelma_connor:
             self.epednn_model = generate_epednn_mit_sparc_tensorflow(weights)
 
         self.bt = np.array(self.calc_B(self.eq['raxis'],self.eq['zaxis'])[1][2])
-        print(f'bt: {self.bt}')
+        # print(f'bt: {self.bt}')
 
 
     def feed_epednn(self, model='EPED1', ne_ped=None, x_ne=None, psiN_Te=None, Te_prev=None, EPEDNN_core='pfile', pres_gfile=False):
@@ -3095,7 +3105,6 @@ class saarelma_connor:
             "r": float(self.Rmajor),           # Major radius (m)
             "zeffped": float(self.Z_i)      # Effective charge
         }
-        print(inputs)
 
         if model == 'EPED1':
             # Call the Julia model using the Python inputs
