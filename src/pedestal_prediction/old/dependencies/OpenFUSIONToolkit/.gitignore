@@ -1,0 +1,21 @@
+# Non-Source directories
+/build*
+/install*
+/src/docs/generated
+
+# FORTRAN compile objects
+*.o
+*.a
+*.mod
+*.pyc
+
+# Editor Items
+.settings
+.cproject
+.project
+.pydevproject
+.vscode
+
+# Workflow products
+src/examples/TokaMaker/AdvancedWorkflows/IsofluxController/IODATA*
+src/examples/TokaMaker/AdvancedWorkflows/IsofluxController/__pycache__*

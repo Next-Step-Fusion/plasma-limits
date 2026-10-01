@@ -1,0 +1,21 @@
+if( OFT_BUILD_TESTS )
+  # Lagrange FE tests
+  oft_add_test( test_lag.F90 )
+  configure_file( test_lag.py ${CMAKE_CURRENT_BINARY_DIR} COPYONLY )
+  oft_add_test( test_vlag.F90 )
+  configure_file( test_vlag.py ${CMAKE_CURRENT_BINARY_DIR} COPYONLY )
+  oft_add_test( test_blag.F90 )
+  configure_file( test_blag.py ${CMAKE_CURRENT_BINARY_DIR} COPYONLY )
+  oft_add_test( test_lag_2d.F90 )
+  configure_file( test_lag_2d.py ${CMAKE_CURRENT_BINARY_DIR} COPYONLY )
+
+  # Conforming FE sequence tests
+  oft_add_test( test_h1.F90 )
+  configure_file( test_h1.py ${CMAKE_CURRENT_BINARY_DIR} COPYONLY )
+  oft_add_test( test_hcurl.F90 )
+  configure_file( test_hcurl.py ${CMAKE_CURRENT_BINARY_DIR} COPYONLY )
+  oft_add_test( test_hcurl_sop.F90 )
+  configure_file( test_hcurl_sop.py ${CMAKE_CURRENT_BINARY_DIR} COPYONLY )
+  oft_add_test( test_hcurl_grad.F90 )
+  configure_file( test_hcurl_grad.py ${CMAKE_CURRENT_BINARY_DIR} COPYONLY )
+endif()

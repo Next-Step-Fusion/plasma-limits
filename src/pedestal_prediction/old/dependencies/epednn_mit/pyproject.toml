@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=80.0", "wheel", "setuptools-scm[simple]>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "epednn_mit"
+version = "1.0.2"
+description = "EPED network networks trained by MIT"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Aaron Ho", email = "aaronkho@mit.edu" },
+  { name = "Theo Brown", email = "theo.brown@ukaea.uk" }
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Topic :: Scientific/Engineering",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+dependencies = [
+  "pip",
+  "numpy",
+]
+
+[project.optional-dependencies]
+tensorflow = ["tensorflow>=2.18.1"]
+pytorch = ["torch>=2.4.0"]
+jax = ["flax"]
+torax = ["torax", "epednn_mit[jax]"]
+
+[project.urls]
+"Homepage" = "https://github.com/aaronkho/epednn_mit"
+
+[project.scripts]
+test_epednn_mit = "epednn_mit.scripts.test:main"

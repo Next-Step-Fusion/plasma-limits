@@ -1,0 +1,33 @@
+html {
+    --toc-color: #F4F6FA;
+}
+
+.navpath li.navelem a:hover {
+    text-decoration: underline;
+    text-shadow: none;
+}
+
+.contents img {
+    max-height: 25em;
+    max-width: 80%;
+}
+
+.caption {
+    font-weight: normal;
+    font-style: italic;
+}
+
+@media screen and (min-width: 999px) {
+    div.contents .toc {
+        background-color: var(--toc-color);
+        border: 1px solid var(--separator-color);
+        border-radius: var(--border-radius-small);
+        z-index: 10;
+    }
+}
+
+@media screen and (max-width: 767px) {
+    .contents img {
+        max-width: 100%;
+    }
+}

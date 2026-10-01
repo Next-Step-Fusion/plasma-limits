@@ -1,0 +1,175 @@
+# FindOFT_PETSc.cmake
+#
+# Finds the PETSc library for use with the Open FUSION Toolkit
+# as installed by versions 3.18 - 3.22 of PETSc using OFT's `build_libs.py` script
+#
+# This will define the following variables
+#
+#    OFT_PETSc_FOUND
+#    OFT_PETSc_INCLUDE_DIRS
+#    OFT_PETSc_LIBRARIES
+#    OFT_PETSc_VERSION_MAJOR
+#    OFT_PETSc_VERSION_MINOR
+#
+# Additionally the following packages may be found
+#
+#    OFT_SUPERLU_FOUND
+#      OFT_SUPERLU_LIBRARIES
+#      OFT_SUPERLU_INCLUDE_DIRS
+#      OFT_SUPERLU_VERSION_MAJOR
+#
+#    OFT_SUPERLU_DIST_FOUND
+#      OFT_SUPERLU_DIST_LIBRARIES
+#      OFT_SUPERLU_DIST_INCLUDE_DIRS
+#
+#    OFT_UMFPACK_FOUND
+#      OFT_UMFPACK_LIBRARIES
+#      OFT_UMFPACK_INCLUDE_DIRS
+#
+#    OFT_MUMPS_FOUND
+#      OFT_MUMPS_LIBRARIES
+#      OFT_MUMPS_INCLUDE_DIRS
+#
+#    OFT_METIS_FOUND
+#      OFT_METIS_LIBRARIES
+#      OFT_METIS_INCLUDE_DIRS
+#
+# Author: Chris Hansen
+
+# Main library
+find_library(PETSC_LIBRARY
+  NAMES petsc
+)
+find_path(PETSC_INCLUDE_DIR
+  NAMES petsc.h
+)
+if( PETSC_INCLUDE_DIR )
+  # Determine PETSc version
+  file(READ "${PETSC_INCLUDE_DIR}/petscversion.h" ver_file)
+  string(REGEX MATCH "PETSC_VERSION_MAJOR[ ]*([0-9]+)" _ ${ver_file})
+  set(PETSC_VER_MAJOR ${CMAKE_MATCH_1})
+  string(REGEX MATCH "PETSC_VERSION_MINOR[ ]*([0-9]+)" _ ${ver_file})
+  set(PETSC_VER_MINOR ${CMAKE_MATCH_1})
+  # Determine if PETSc was built with MPI Fortran 2008 support
+  file(READ "${PETSC_INCLUDE_DIR}/petscconf.h" conf_file)
+  string(FIND ${conf_file} "PETSC_USE_MPI_F08" mpi_f08_avail )
+  if( mpi_f08_avail EQUAL -1 )
+    set(OFT_PETSc_MPI_F08 FALSE)
+  else()
+    set(OFT_PETSc_MPI_F08 TRUE)
+  endif()
+endif()
+set(PETSC_LIBRARIES ${PETSC_LIBRARY})
+
+# Find SuperLU
+find_library(SUPERLU_LIBRARY
+  NAMES superlu superlu_4.3
+)
+find_path(SUPERLU_INCLUDE_DIR
+  NAMES slu_ddefs.h
+)
+if( SUPERLU_LIBRARY AND SUPERLU_INCLUDE_DIR )
+  set(OFT_SUPERLU_FOUND TRUE)
+  file(READ "${SUPERLU_INCLUDE_DIR}/slu_util.h" ver_file)
+  string(REGEX MATCH "SUPERLU_MAJOR_VERSION[ ]*([0-9]+)" _ ${ver_file})
+  set(OFT_SUPERLU_VER_MAJOR ${CMAKE_MATCH_1})
+  set(OFT_SUPERLU_INCLUDE_DIRS ${SUPERLU_INCLUDE_DIR})
+  set(OFT_SUPERLU_LIBRARIES ${SUPERLU_LIBRARY})
+  list(APPEND PETSC_LIBRARIES ${OFT_SUPERLU_LIBRARIES})
+endif()
+
+# Find SuperLU-DIST
+find_library(SUPERLU_DIST_LIBRARY
+  NAMES superlu_dist superlu_dist_4.1 superlu_dist_3.3
+)
+find_path(SUPERLU_DIST_INCLUDE_DIR
+  NAMES superlu_ddefs.h
+)
+if(SUPERLU_DIST_LIBRARY AND SUPERLU_DIST_INCLUDE_DIR )
+  set(OFT_SUPERLU_DIST_FOUND TRUE)
+  set(OFT_SUPERLU_DIST_INCLUDE_DIRS ${SUPERLU_DIST_INCLUDE_DIR})
+  set(OFT_SUPERLU_DIST_LIBRARIES ${SUPERLU_DIST_LIBRARY})
+  list(APPEND PETSC_LIBRARIES ${OFT_SUPERLU_DIST_LIBRARIES})
+endif()
+
+# UMFPACK
+set(UMFPACK_TMP_LIBRARIES)
+foreach(LIB_NAME amd btf camd ccolamd cholmod colamd klu spqr suitesparseconfig umfpack )
+  set(LIB_VAR "LIB_${LIB_NAME}")
+  find_library(${LIB_VAR}
+    NAMES ${LIB_NAME}
+  )
+  if( LIB_VAR )
+    set(UMFPACK_TMP_LIBRARIES ${UMFPACK_TMP_LIBRARIES} ${${LIB_VAR}})
+  endif()
+endforeach()
+find_path(UMFPACK_INCLUDE_DIR
+  NAMES umfpack.h
+)
+if( UMFPACK_TMP_LIBRARIES AND UMFPACK_INCLUDE_DIR )
+  set(OFT_UMFPACK_FOUND TRUE)
+  set(OFT_UMFPACK_INCLUDE_DIRS ${UMFPACK_INCLUDE_DIR})
+  set(OFT_UMFPACK_LIBRARIES ${UMFPACK_TMP_LIBRARIES})
+  list(APPEND PETSC_LIBRARIES ${OFT_UMFPACK_LIBRARIES})
+endif()
+
+# MUMPS
+find_library(MUMPS_LIBRARY
+  NAMES dmumps
+)
+find_library(MUMPS_COMMON_LIBRARY
+  NAMES mumps_common
+)
+find_library(MUMPS_PORD_LIBRARY
+  NAMES pord
+)
+find_library(SCALAPACK_LIBRARY
+  NAMES scalapack
+)
+find_path(MUMPS_INCLUDE_DIR
+  NAMES dmumps_struc.h
+)
+if( MUMPS_LIBRARY AND MUMPS_COMMON_LIBRARY AND MUMPS_PORD_LIBRARY AND SCALAPACK_LIBRARY AND MUMPS_INCLUDE_DIR )
+  set(OFT_MUMPS_FOUND TRUE)
+  set(OFT_MUMPS_INCLUDE_DIRS ${MUMPS_INCLUDE_DIR})
+  set(OFT_MUMPS_LIBRARIES ${MUMPS_LIBRARY} ${MUMPS_COMMON_LIBRARY}
+    ${MUMPS_PORD_LIBRARY} ${SCALAPACK_LIBRARY})
+  list(APPEND PETSC_LIBRARIES ${OFT_MUMPS_LIBRARIES})
+endif()
+
+# Parmetis
+find_library(PARMETIS_LIBRARY
+  NAMES parmetis
+)
+if(PARMETIS_LIBRARY)
+  list(APPEND PETSC_LIBRARIES ${PARMETIS_LIBRARY})
+endif()
+
+# METIS
+find_library(METIS_LIBRARY
+  NAMES metis
+)
+find_path(METIS_INCLUDE_DIR
+  NAMES metis.h
+)
+if( METIS_LIBRARY AND METIS_INCLUDE_DIR )
+  set(OFT_METIS_FOUND TRUE)
+  set(OFT_PETSc_METIS TRUE)
+  set(OFT_METIS_INCLUDE_DIRS ${METIS_INCLUDE_DIR})
+  set(OFT_METIS_LIBRARIES ${METIS_LIBRARY})
+  list(APPEND PETSC_LIBRARIES ${OFT_METIS_LIBRARIES})
+endif()
+
+# Final check
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(OFT_PETSc
+  REQUIRED_VARS
+    PETSC_LIBRARIES
+    PETSC_INCLUDE_DIR
+)
+if(OFT_PETSc_FOUND)
+  set(OFT_PETSc_INCLUDE_DIRS ${PETSC_INCLUDE_DIR})
+  set(OFT_PETSc_LIBRARIES ${PETSC_LIBRARIES})
+  set(OFT_PETSc_VER_MAJOR ${PETSC_VER_MAJOR})
+  set(OFT_PETSc_VER_MINOR ${PETSC_VER_MINOR})
+endif()

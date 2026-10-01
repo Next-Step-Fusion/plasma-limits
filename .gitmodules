@@ -11,3 +11,6 @@
 	path = src/pedestal_prediction/dependencies/firedrake
 	url = https://github.com/firedrakeproject/firedrake.git
 	branch = release
+[submodule "src/pedestal_prediction/ESCAPE"]
+	path = src/pedestal_prediction/ESCAPE
+	url = https://github.com/jlabbate15/ESCAPE.git

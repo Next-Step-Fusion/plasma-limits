@@ -1,0 +1,107 @@
+# Based on sample workflow for building and deploying a Jekyll site to GitHub Pages
+name: GitHub Pages Build
+
+on:
+  # Runs on pushes targeting main or gh-pages branch (deploy on gh-pages only)
+  push:
+    branches: ["gh-pages", "main"]
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # Build job
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Fetch release tags (deploy)
+        if: github.ref == 'refs/heads/gh-pages'
+        run: git fetch --prune --unshallow --tags
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get -y install doxygen graphviz
+          pip3 install jupyter nbconvert
+
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v4
+
+      - name: Create build dir
+        run: mkdir build_docs
+
+      - name: Build OFT documentation (nightly)
+        if: github.ref != 'refs/heads/gh-pages'
+        shell: bash
+        working-directory: build_docs
+        run: |
+          cmake -DOFT_BUILD_DOCS:BOOL=ON -DOFT_DOCS_ONLY:BOOL=ON -DOFT_PACKAGE_NIGHTLY:BOOL=ON ../src
+          make docs
+      
+      - name: Build OFT documentation (deploy)
+        if: github.ref == 'refs/heads/gh-pages'
+        shell: bash
+        working-directory: build_docs
+        run: bash ../src/docs/build_doc_versions.sh
+      
+      - name: Package full site
+        run: |
+          cp -rL src/docs/website _site
+          cp -r build_docs/doc/html _site/docs
+
+      - name: Fix permissions
+        run: |
+          chmod -c -R +rX "_site/" | while read line; do
+            echo "::warning title=Invalid file permissions automatically fixed::$line"
+          done
+        
+      - name: Upload actions artifact (pull request)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pull_${{ github.event.pull_request.number }}-website
+          path: _site/
+          overwrite: true
+      
+      - name: Upload actions artifact (nightly)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: commit_${{ github.sha }}-website
+          path: _site/
+          overwrite: true
+
+      - name: Upload pages artifact
+        if: github.ref == 'refs/heads/gh-pages'
+        uses: actions/upload-pages-artifact@v3
+
+  # Deployment job
+  deploy:
+    if: github.ref == 'refs/heads/gh-pages'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
