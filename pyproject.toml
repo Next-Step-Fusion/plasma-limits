@@ -30,9 +30,10 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib --strict-markers"
+addopts = "--import-mode=importlib --strict-markers -m 'not slow and not integration'"
 testpaths = ["tests"]
 markers = [
     "slow: end-to-end runs with real EPED1 (starts Julia)",
     "cluster: needs Firedrake",
+    "integration: ARC run of ESCAPE (1D scipy, real EPED1) against tests/data/arc_1d_baseline.npy",
 ]
