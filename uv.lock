@@ -143,6 +143,33 @@ wheels = [
 ]
 
 [[package]]
+name = "escape"
+version = "0.1.0"
+source = { editable = "dependencies/ESCAPE" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+
+[package.optional-dependencies]
+eped1 = [
+    { name = "juliacall" },
+    { name = "juliapkg" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "juliacall", marker = "extra == 'eped1'" },
+    { name = "juliapkg", marker = "extra == 'eped1'" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "scipy" },
+]
+provides-extras = ["eped1"]
+
+[[package]]
 name = "filelock"
 version = "3.32.7"
 source = { registry = "https://pypi.org/simple" }
@@ -726,6 +753,7 @@ name = "plasma-limits"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "escape", extra = ["eped1"] },
     { name = "h5py" },
     { name = "juliacall" },
     { name = "juliapkg" },
@@ -744,6 +772,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "escape", extras = ["eped1"], editable = "dependencies/ESCAPE" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "juliacall", specifier = ">=0.9.36" },
     { name = "juliapkg", specifier = ">=0.1.27" },

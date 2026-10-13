@@ -1,4 +1,4 @@
-"""Layout and imports of the ESCAPE package in dependencies/ESCAPE/src/escape."""
+"""Layout and imports of the installed ESCAPE package (dependencies/ESCAPE/src/escape)."""
 import json
 import subprocess
 import sys
@@ -10,14 +10,13 @@ PACKAGE_DIR = ESCAPE_ROOT / "src" / "escape"
 
 
 def _run_in_subprocess(code):
-    """Run code in a fresh interpreter with ESCAPE_ROOT/src on sys.path; return its JSON output."""
-    prelude = f"import sys; sys.path.insert(0, {str(ESCAPE_ROOT / 'src')!r})\n"
-    out = subprocess.run([sys.executable, "-c", prelude + textwrap.dedent(code)],
+    """Run code in a fresh interpreter and return its JSON output."""
+    out = subprocess.run([sys.executable, "-c", textwrap.dedent(code)],
                          capture_output=True, text=True, check=True)
     return json.loads(out.stdout)
 
 
-def test_escape_imports_from_src_layout():
+def test_installed_escape_imports():
     result = _run_in_subprocess("""
         import json, os, sys
         from pathlib import Path
@@ -53,3 +52,10 @@ def test_no_src_imports_left_in_package():
                  for n, line in enumerate(path.read_text().splitlines(), 1)
                  if line.startswith(("from src.", "import src."))]
     assert offenders == []
+
+
+def test_src_holds_only_known_packages():
+    """The editable install puts ESCAPE_ROOT/src on sys.path, so every folder there is importable."""
+    folders = {d.name for d in (ESCAPE_ROOT / "src").iterdir()
+               if d.is_dir() and d.name != "__pycache__" and not d.name.endswith(".egg-info")}
+    assert folders == {"escape", "old"}
