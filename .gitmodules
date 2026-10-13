@@ -1,16 +1,3 @@
-[submodule "src/pedestal_prediction/dependencies/EPEDNN.jl"]
-	path = src/pedestal_prediction/dependencies/EPEDNN.jl
-	url = https://github.com/ProjectTorreyPines/EPEDNN.jl.git
-[submodule "src/pedestal_prediction/dependencies/OpenFUSIONToolkit"]
-	path = src/pedestal_prediction/dependencies/OpenFUSIONToolkit
-	url = https://github.com/OpenFUSIONToolkit/OpenFUSIONToolkit.git
-[submodule "src/pedestal_prediction/dependencies/epednn_mit"]
-	path = src/pedestal_prediction/dependencies/epednn_mit
-	url = https://github.com/aaronkho/epednn_mit.git
-[submodule "src/pedestal_prediction/dependencies/firedrake"]
-	path = src/pedestal_prediction/dependencies/firedrake
-	url = https://github.com/firedrakeproject/firedrake.git
-	branch = release
 [submodule "src/pedestal_prediction/ESCAPE"]
-	path = src/pedestal_prediction/ESCAPE
+	path = dependencies/ESCAPE
 	url = https://github.com/jlabbate15/ESCAPE.git

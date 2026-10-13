@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ESCAPE_ROOT = Path(__file__).resolve().parent / 'ESCAPE'
+ESCAPE_ROOT = Path(__file__).resolve().parents[2] / 'dependencies' / 'ESCAPE'
 ARC_DIR = ESCAPE_ROOT / 'examples' / 'device_prediction' / 'ARC'
 
 

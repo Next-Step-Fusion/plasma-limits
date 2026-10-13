@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import numpy as np
 
@@ -12,6 +13,7 @@ ITER_KEYS = {
     "SOLVE_KW", "model", "implementation", "diagnostics",
 }
 PLAIN_SCALARS = (np.generic, bool, int, float, complex, str, type(None))
+ARC_REFERENCE = Path(__file__).parent / "data" / "arc_reference.npy"
 
 
 def _leaves(obj, path="d"):
@@ -47,15 +49,14 @@ def test_arc_reference_is_plain(ref_arc):
 
 def test_arc_reference_loads_with_numpy_only():
     """Loading arc_reference.npy must not import Julia or ESCAPE."""
-    code = textwrap.dedent("""
+    code = textwrap.dedent(f"""
         import json, sys
         import numpy as np
-        from pedestal_prediction.ESCAPE_interface import ESCAPE_ROOT
-        d = np.load(ESCAPE_ROOT.parent / "test" / "arc_reference.npy", allow_pickle=True).item()
-        print(json.dumps({
-            "loaded": [m for m in ("juliacall", "src") if m in sys.modules],
-            "has_state": "state" in d,
-        }))
+        d = np.load({str(ARC_REFERENCE)!r}, allow_pickle=True).item()
+        print(json.dumps(dict(
+            loaded=[m for m in ("juliacall", "src") if m in sys.modules],
+            has_state="state" in d,
+        )))
     """)
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     result = json.loads(out.stdout)

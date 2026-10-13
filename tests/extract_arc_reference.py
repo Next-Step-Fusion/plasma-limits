@@ -9,12 +9,13 @@ loads with numpy alone.
 Run by hand from the repo root:  uv run python tests/extract_arc_reference.py
 """
 import sys
+from pathlib import Path
 
 import numpy as np
 
 from pedestal_prediction.ESCAPE_interface import ESCAPE_ROOT
 
-REF_DIR = ESCAPE_ROOT.parent / "test"  # src/pedestal_prediction/test
+REF_DIR = Path(__file__).parent / "data"
 EPEDNN_UUID = "e64856f0-3bb8-4376-b4b7-c03396503991"
 PLAIN_SCALARS = (np.generic, bool, int, float, complex, str, type(None))
 _DROP = object()  # marks a value that plain() removes

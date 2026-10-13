@@ -1,16 +1,16 @@
 """Shared fixtures: reference outputs of an ESCAPE ARC run (3D, Firedrake, EPED1).
 
-The files in src/pedestal_prediction/test/ were written by ESCAPE's ARC driver
+The files in tests/data/ were written by ESCAPE's ARC driver
 and load with numpy alone. ne_and_Te_iter_k.npy holds iteration k of the ESCAPE
 loop. arc_reference.npy holds the plain-data part of the driver's out_dict.npy
 (see extract_arc_reference.py).
 """
+from pathlib import Path
+
 import numpy as np
 import pytest
 
-from pedestal_prediction.ESCAPE_interface import ESCAPE_ROOT
-
-REF_DIR = ESCAPE_ROOT.parent / "test"  # src/pedestal_prediction/test
+REF_DIR = Path(__file__).parent / "data"
 N_REF_ITERS = 5
 
 
