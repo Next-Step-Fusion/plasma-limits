@@ -19,10 +19,10 @@ the standard library and numpy.
 
 The module works from a source checkout or an editable install only:
 ``pedestal_prediction`` is a namespace package, and ESCAPE is located through
-the submodule directory next to this file.
+the submodule directory ``dependencies/ESCAPE`` at the repository root.
 """
 from pathlib import Path
 
 __all__ = []
 
-ESCAPE_ROOT = Path(__file__).resolve().parent / "ESCAPE"
+ESCAPE_ROOT = Path(__file__).resolve().parents[2] / "dependencies" / "ESCAPE"
