@@ -20,6 +20,7 @@ def test_installed_escape_imports():
     result = _run_in_subprocess("""
         import json, os, sys
         from pathlib import Path
+        path_before = list(sys.path)
         from escape.ESCAPE.ESCAPE_api import ESCAPE
         from escape.ESCAPE import ESCAPE_solve, ESCAPE_state
         from escape.saarelma_connor import saarelma_connor_base, solver_3d
@@ -29,8 +30,8 @@ def test_installed_escape_imports():
         print(json.dumps(dict(
             api_file=sys.modules[ESCAPE.__module__].__file__,
             same_state_class=saarelma_connor_base.ESCAPE_state is ESCAPE_state.ESCAPE_state,
-            src_loaded="src" in sys.modules,
-            solve_root=str(ESCAPE_solve.ROOT),
+            loaded=[m for m in ("src", "helpers") if m in sys.modules],
+            path_unchanged=sys.path == path_before,
             epednn_root=str(Path(epednn_call.__file__).resolve().parents[3]),
             adas_dat=sorted(f for f in os.listdir(adas_ionisation.ADAS_DIR) if f.endswith(".dat")),
             radas_data=os.path.isdir(radas_rates.DATA_DIR),
@@ -38,19 +39,41 @@ def test_installed_escape_imports():
     """)
     assert result["api_file"].startswith(str(PACKAGE_DIR))
     assert result["same_state_class"]
-    assert not result["src_loaded"]
-    assert result["solve_root"] == str(ESCAPE_ROOT)
+    assert result["loaded"] == []
+    assert result["path_unchanged"]
     assert result["epednn_root"] == str(ESCAPE_ROOT)
     assert (ESCAPE_ROOT / "dependencies" / "EPEDNN.jl").is_dir()
     assert result["adas_dat"] == ["ccd96_d.dat", "scd12_h.dat"]
     assert result["radas_data"]
 
 
-def test_no_src_imports_left_in_package():
-    offenders = [f"{path.relative_to(ESCAPE_ROOT)}:{n}"
-                 for path in PACKAGE_DIR.rglob("*.py")
-                 for n, line in enumerate(path.read_text().splitlines(), 1)
-                 if line.startswith(("from src.", "import src."))]
+def test_helpers_import_without_optional_dependencies():
+    """OpenFUSIONToolkit and omfit are imported inside the helper functions only."""
+    result = _run_in_subprocess("""
+        import json, sys
+        from escape.helpers import load_equil, parse_equil, parse_prof, ped_width_proxy
+        print(json.dumps(dict(
+            loaded=[m for m in ("OpenFUSIONToolkit", "omfit_classes", "helpers") if m in sys.modules],
+            ped_width_file=ped_width_proxy.__file__,
+        )))
+    """)
+    assert result["loaded"] == []
+    assert result["ped_width_file"].startswith(str(PACKAGE_DIR / "helpers"))
+    assert not (ESCAPE_ROOT / "helpers").exists()
+
+
+def test_no_old_imports_left():
+    """No ESCAPE source imports the old src package or the old top-level helpers package."""
+    package_lines = [(path, line) for path in PACKAGE_DIR.rglob("*.py")
+                     for line in path.read_text().splitlines()]
+    assert [p for p, line in package_lines if line.startswith(("from src.", "import src."))] == []
+
+    sources = [p for p in ESCAPE_ROOT.rglob("*")
+               if p.suffix in (".py", ".ipynb")
+               and not {"old", "dependencies"} & set(p.relative_to(ESCAPE_ROOT).parts)]
+    old_helpers = ("from helpers.", "import helpers", "from ESCAPE.helpers.", '"from helpers.')
+    offenders = [str(p.relative_to(ESCAPE_ROOT)) for p in sources
+                 if any(line.lstrip().startswith(old_helpers) for line in p.read_text().splitlines())]
     assert offenders == []
 
 
