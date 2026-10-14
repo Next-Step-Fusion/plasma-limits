@@ -1,8 +1,11 @@
-"""Import behaviour of pedestal_prediction.ESCAPE_interface."""
+"""Import behaviour of plasma_limits.pedestal_prediction.ESCAPE_interface."""
 import json
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
+
+SUBMODULE = Path(__file__).resolve().parents[1] / "dependencies" / "ESCAPE"
 
 
 def _run_in_subprocess(code):
@@ -18,14 +21,14 @@ def test_import_is_lightweight():
     result = _run_in_subprocess("""
         import json, sys
         path_before = list(sys.path)
-        import pedestal_prediction.ESCAPE_interface as ei
+        import plasma_limits.pedestal_prediction.ESCAPE_interface as ei
         heavy = ["escape", "src", "firedrake", "juliacall", "matplotlib.pyplot"]
         print(json.dumps({
             "loaded": [m for m in heavy if m in sys.modules],
             "path_unchanged": sys.path == path_before,
-            "escape_found": (ei.ESCAPE_ROOT / "src" / "escape").is_dir(),
+            "escape_root": str(ei.ESCAPE_ROOT),
         }))
     """)
     assert result["loaded"] == []
     assert result["path_unchanged"]
-    assert result["escape_found"]
+    assert result["escape_root"] == str(SUBMODULE), "escape is not installed from the submodule"

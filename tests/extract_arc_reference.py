@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pedestal_prediction.ESCAPE_interface import ESCAPE_ROOT
+from plasma_limits.pedestal_prediction.ESCAPE_interface import ESCAPE_ROOT
 
 REF_DIR = Path(__file__).parent / "data"
 EPEDNN_UUID = "e64856f0-3bb8-4376-b4b7-c03396503991"

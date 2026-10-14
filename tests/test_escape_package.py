@@ -4,7 +4,7 @@ import subprocess
 import sys
 import textwrap
 
-from pedestal_prediction.ESCAPE_interface import ESCAPE_ROOT
+from plasma_limits.pedestal_prediction.ESCAPE_interface import ESCAPE_ROOT
 
 PACKAGE_DIR = ESCAPE_ROOT / "src" / "escape"
 

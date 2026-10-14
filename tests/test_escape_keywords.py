@@ -6,13 +6,12 @@ evaluated.
 """
 import copy
 import importlib.util
+from pathlib import Path
 
 import numpy as np
 import pytest
 
-from pedestal_prediction.ESCAPE_interface import ESCAPE_ROOT
-
-TESTS_DIR = ESCAPE_ROOT.parents[1] / "tests"
+TESTS_DIR = Path(__file__).parent
 SOLVE_ONLY_KEYS = ("sc_params", "epednn_params", "ESCAPE_iter_max", "ESCAPE_tol_max")
 CALLBACK_ONLY_KEYS = ("betan", "T_e_pres")
 

@@ -1,10 +1,13 @@
-"""Run ESCAPE (git submodule) device-prediction scripts from plasma-limits."""
+"""Run ESCAPE device-prediction scripts from plasma-limits."""
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-ESCAPE_ROOT = Path(__file__).resolve().parents[2] / 'dependencies' / 'ESCAPE'
+from plasma_limits.pedestal_prediction.ESCAPE_interface import ESCAPE_ROOT
+
+if ESCAPE_ROOT is None:
+    raise ImportError("ESCAPE_io needs the escape package, installed editable from an ESCAPE checkout")
 ARC_DIR = ESCAPE_ROOT / 'examples' / 'device_prediction' / 'ARC'
 
 
