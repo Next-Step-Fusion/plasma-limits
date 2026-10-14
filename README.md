@@ -4,12 +4,33 @@ Python library for computing tokamak plasma density limits for advanced scenario
 
 ## Installation
 
-Requires Python ≥ 3.11. Install with [uv](https://docs.astral.sh/uv/):
+Requires Python ≥ 3.11. The package is `plasma_limits`, with the subpackages
+`plasma_limits.density_limit` and `plasma_limits.pedestal_prediction`.
+
+### Development (this repository, with [uv](https://docs.astral.sh/uv/))
 
 ```bash
+git submodule update --init --recursive dependencies/ESCAPE
 uv sync
-uv pip install -e .
 ```
+
+`uv sync` installs plasma-limits and ESCAPE (from `dependencies/ESCAPE`) as editable packages.
+
+### In another Python environment
+
+```bash
+pip install /path/to/plasma-limits            # or: pip install -e /path/to/plasma-limits
+```
+
+This is enough for `plasma_limits.density_limit`. The pedestal prediction also needs ESCAPE.
+Install it first, as an editable install from an ESCAPE checkout (ESCAPE finds its Julia
+EPEDNN model relative to its source files):
+
+```bash
+pip install -e "/path/to/plasma-limits/dependencies/ESCAPE[eped1]"
+```
+
+ESCAPE is not a dependency of the package: the PyPI package `escape` is an unrelated project.
 
 ## Usage
 

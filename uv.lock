@@ -753,7 +753,6 @@ name = "plasma-limits"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "escape", extra = ["eped1"] },
     { name = "h5py" },
     { name = "juliacall" },
     { name = "juliapkg" },
@@ -769,10 +768,12 @@ dependencies = [
 dev = [
     { name = "pytest" },
 ]
+escape = [
+    { name = "escape", extra = ["eped1"] },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "escape", extras = ["eped1"], editable = "dependencies/ESCAPE" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "juliacall", specifier = ">=0.9.36" },
     { name = "juliapkg", specifier = ">=0.1.27" },
@@ -785,6 +786,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+escape = [{ name = "escape", extras = ["eped1"], editable = "dependencies/ESCAPE" }]
 
 [[package]]
 name = "pluggy"
