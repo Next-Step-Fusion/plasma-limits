@@ -1,7 +1,7 @@
 """ARC example runs of ESCAPE (real EPED1) against recorded baselines.
 
 - 1d: 1D scipy, in this interpreter, compared bit for bit, in both driver modes
-  (file: ESCAPE_solve defaults; memory: the in-memory keywords).
+  (file: ESCAPE_solve defaults; memory: the in-memory keywords, out_dir=None).
 - 3d: 3D Firedrake, in an interpreter that has Firedrake, compared to rtol=1e-10.
   PyOP2 builds its kernels for the local CPU, so a baseline from another
   machine can differ in the last bits. The case is skipped if no interpreter
@@ -145,6 +145,8 @@ def test_arc_run_matches_baseline(model, mode, tmp_path):
     subprocess.run([str(python), str(DRIVER), str(out_dir), str(result_file),
                     "--model", model, "--mode", mode], env=env, check=True)
     assert _submodule_status() == status_before, "the ARC run changed files in the ESCAPE submodule"
+    if mode == "memory":
+        assert list(out_dir.iterdir()) == [], "the memory run wrote into <out_dir>"
 
     result = np.load(result_file, allow_pickle=True).item()
     iterations = result["iterations"]

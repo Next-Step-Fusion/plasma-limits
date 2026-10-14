@@ -102,9 +102,8 @@ def test_escape_solve_passes_injected_model(driver, load_calls, fake_eped, tmp_p
     assert sorted(p.name for p in tmp_path.iterdir()) == ["ne_and_Te_iter_0.npy"]
 
 
-@pytest.fixture(scope="module")
-def callback_run(driver, tmp_path_factory):
-    """One ESCAPE_solve run of 2 iterations with out_dir and on_iteration.
+def _run_two_iterations(driver, mp, out_dir):
+    """ESCAPE_solve on the ARC inputs with a fake EPED; returns the on_iteration calls.
 
     The fake EPED returns a fixed pedestal, so the run stops after iteration 1
     (loop_tol = 0), and betan = 1, 2 in iterations 0, 1.
@@ -112,14 +111,7 @@ def callback_run(driver, tmp_path_factory):
     from escape.ESCAPE.ESCAPE_api import ESCAPE
     from escape.ESCAPE.ESCAPE_solve import ESCAPE_solve
 
-    out_dir = tmp_path_factory.mktemp("out")
-    calls, solver_T_e_pres = [], []
-    solve_scmodel = ESCAPE.solve_scmodel
-
-    def recording_solve(self, *args, **kwargs):
-        res = solve_scmodel(self, *args, **kwargs)
-        solver_T_e_pres.append(np.array(res['T_e_pres']))
-        return res
+    calls = []
 
     def fake_feed(self, model='EPED1', pres_gfile=False, ne_ped_h=None, psin_ped=None):
         self.betan = np.array([1.0 + len(calls)])
@@ -128,11 +120,29 @@ def callback_run(driver, tmp_path_factory):
     def on_iteration(k, sol):
         calls.append((k, copy.deepcopy(driver.plain(sol))))
 
+    mp.setattr(ESCAPE, "feed_epednn", fake_feed)
+    inputs = dict(driver.arc_inputs(), ESCAPE_iter_max=2)
+    ESCAPE_solve(**inputs, out_dir=out_dir, epednn_model=object(), on_iteration=on_iteration)
+    return calls
+
+
+@pytest.fixture(scope="module")
+def callback_run(driver, tmp_path_factory):
+    """One run of 2 iterations with out_dir and on_iteration; also records the solver's T_e_pres."""
+    from escape.ESCAPE.ESCAPE_api import ESCAPE
+
+    out_dir = tmp_path_factory.mktemp("out")
+    solver_T_e_pres = []
+    solve_scmodel = ESCAPE.solve_scmodel
+
+    def recording_solve(self, *args, **kwargs):
+        res = solve_scmodel(self, *args, **kwargs)
+        solver_T_e_pres.append(np.array(res['T_e_pres']))
+        return res
+
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(ESCAPE, "solve_scmodel", recording_solve)
-        mp.setattr(ESCAPE, "feed_epednn", fake_feed)
-        inputs = dict(driver.arc_inputs(), ESCAPE_iter_max=2)
-        ESCAPE_solve(**inputs, out_dir=str(out_dir), epednn_model=object(), on_iteration=on_iteration)
+        calls = _run_two_iterations(driver, mp, str(out_dir))
 
     saved = [np.load(out_dir / f"ne_and_Te_iter_{k}.npy", allow_pickle=True).item() for k in range(2)]
     return dict(calls=calls, saved=saved, solver_T_e_pres=solver_T_e_pres, out_dir=out_dir)
@@ -158,3 +168,13 @@ def test_on_iteration_extra_keys(callback_run):
         assert np.array_equal(sol["T_e_pres"], solver_T_e_pres)
         assert sol["T_e_pres"].shape == saved["psi_N"].shape
         assert not np.array_equal(sol["T_e_pres"], saved["T_e"])
+
+
+def test_out_dir_none_writes_nothing(callback_run, driver, diff, tmp_path, monkeypatch):
+    """The callback_run run with out_dir=None, in an empty working directory."""
+    monkeypatch.chdir(tmp_path)
+    calls = _run_two_iterations(driver, monkeypatch, None)
+
+    assert list(tmp_path.iterdir()) == []
+    assert [k for k, _ in calls] == [0, 1]
+    assert diff(calls, callback_run["calls"], "calls") == []

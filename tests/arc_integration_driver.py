@@ -7,15 +7,16 @@ EPED1 runs through Julia.
 Usage:  python tests/arc_integration_driver.py <out_dir> <result_file>
             [--model {1d,3d}] [--mode {file,memory}]
 
-ESCAPE_solve writes its iteration files into <out_dir> and deletes everything
-else in it. The driver then saves the plain values of all iterations as one
-dict in <result_file> (np.save, loads with numpy alone).
+In file mode, ESCAPE_solve writes its iteration files into <out_dir> and deletes
+everything else in it. In memory mode, <out_dir> is not used. The driver saves
+the plain values of all iterations as one dict in <result_file> (np.save, loads
+with numpy alone).
 
 Modes:
 - file: ESCAPE_solve with its default arguments, as the author's drivers call it.
 - memory: the in-memory keywords: the EPEDNN model is loaded with
-  load_epednn_model and given to ESCAPE_solve as epednn_model, and the
-  iterations come from on_iteration instead of the files. The two keys that
+  load_epednn_model and given to ESCAPE_solve as epednn_model, out_dir=None,
+  and the iterations come from on_iteration. The two keys that
   on_iteration adds (betan, T_e_pres) are moved to result['extras'], so
   result['iterations'] has the same form as in file mode.
 """
@@ -165,7 +166,7 @@ def main(out_dir, result_file, model='1d', mode='file'):
             result["iterations"].append(sol)
 
         inputs['epednn_model'] = load_epednn_model(inputs['epednn_params']['epednn_model'])
-        ESCAPE_solve(**inputs, out_dir=str(out_dir), on_iteration=on_iteration)
+        ESCAPE_solve(**inputs, out_dir=None, on_iteration=on_iteration)
     np.save(result_file, result, allow_pickle=True)
 
 
