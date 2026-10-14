@@ -14,9 +14,13 @@ dict in <result_file> (np.save, loads with numpy alone).
 Modes:
 - file: ESCAPE_solve with its default arguments, as the author's drivers call it.
 - memory: the in-memory keywords: the EPEDNN model is loaded with
-  load_epednn_model and given to ESCAPE_solve as epednn_model.
+  load_epednn_model and given to ESCAPE_solve as epednn_model, and the
+  iterations come from on_iteration instead of the files. The two keys that
+  on_iteration adds (betan, T_e_pres) are moved to result['extras'], so
+  result['iterations'] has the same form as in file mode.
 """
 import argparse
+import copy
 from pathlib import Path
 
 import numpy as np
@@ -148,16 +152,31 @@ def _keep(obj):
 
 def main(out_dir, result_file, model='1d', mode='file'):
     inputs = arc_inputs(model)
-    if mode == 'memory':
+    if mode == 'file':
+        ESCAPE_solve(**inputs, out_dir=str(out_dir))
+        result = {"iterations": _read_iteration_files(out_dir)}
+    else:
+        result = {"iterations": [], "extras": []}
+
+        def on_iteration(k, sol):
+            assert k == len(result["iterations"]), f"iteration {k} out of order"
+            sol = copy.deepcopy(plain(sol))
+            result["extras"].append({"betan": sol.pop("betan"), "T_e_pres": sol.pop("T_e_pres")})
+            result["iterations"].append(sol)
+
         inputs['epednn_model'] = load_epednn_model(inputs['epednn_params']['epednn_model'])
-    ESCAPE_solve(**inputs, out_dir=str(out_dir))
+        ESCAPE_solve(**inputs, out_dir=str(out_dir), on_iteration=on_iteration)
+    np.save(result_file, result, allow_pickle=True)
+
+
+def _read_iteration_files(out_dir):
     iters = []
     for k in range(N_ITER):
         path = Path(out_dir) / f"ne_and_Te_iter_{k}.npy"
         if not path.exists():
             break
         iters.append(plain(np.load(path, allow_pickle=True).item()))
-    np.save(result_file, {"iterations": iters}, allow_pickle=True)
+    return iters
 
 
 if __name__ == "__main__":

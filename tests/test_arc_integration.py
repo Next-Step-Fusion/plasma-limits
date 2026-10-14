@@ -149,6 +149,13 @@ def test_arc_run_matches_baseline(model, mode, tmp_path):
     result = np.load(result_file, allow_pickle=True).item()
     iterations = result["iterations"]
     assert len(iterations) == 5
+    if mode == "memory":
+        extras = result["extras"]
+        assert len(extras) == 5
+        for it, extra in zip(iterations, extras):
+            assert extra["betan"].shape == (1,) and np.isfinite(extra["betan"]).all()
+            assert extra["T_e_pres"].shape == it["psi_N"].shape
+            assert np.isfinite(extra["T_e_pres"]).all()
 
     if os.environ.get("ESCAPE_UPDATE_BASELINE") == "1" and mode == "file":
         np.save(baseline_file, {"iterations": iterations}, allow_pickle=True)
