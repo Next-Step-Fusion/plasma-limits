@@ -53,7 +53,6 @@ def test_arc_run_matches_baseline(tmp_path):
     assert _submodule_status() == status_before, "the ARC run changed files in the ESCAPE submodule"
 
     result = np.load(result_file, allow_pickle=True).item()
-    print(f"ESCAPE import route: {result['route']}")
     iterations = result["iterations"]
     assert len(iterations) == 5
 

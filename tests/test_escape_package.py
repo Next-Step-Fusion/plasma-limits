@@ -71,9 +71,10 @@ def test_no_old_imports_left():
     sources = [p for p in ESCAPE_ROOT.rglob("*")
                if p.suffix in (".py", ".ipynb")
                and not {"old", "dependencies"} & set(p.relative_to(ESCAPE_ROOT).parts)]
-    old_helpers = ("from helpers.", "import helpers", "from ESCAPE.helpers.", '"from helpers.')
+    old_imports = ("from helpers.", "import helpers", "from ESCAPE.helpers.", '"from helpers.',
+                   "from src.", "import src.", '"from src.', '"import src.', '"# from src.')
     offenders = [str(p.relative_to(ESCAPE_ROOT)) for p in sources
-                 if any(line.lstrip().startswith(old_helpers) for line in p.read_text().splitlines())]
+                 if any(line.lstrip().startswith(old_imports) for line in p.read_text().splitlines())]
     assert offenders == []
 
 

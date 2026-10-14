@@ -14,34 +14,13 @@ from pathlib import Path
 
 import numpy as np
 
+from escape.ESCAPE.ESCAPE_solve import ESCAPE_solve
+from escape.helpers.parse_equil import mhd_load
+
 ESCAPE_ROOT = Path(__file__).resolve().parents[1] / "dependencies" / "ESCAPE"
 ARC_DIR = ESCAPE_ROOT / "examples" / "device_prediction" / "ARC"
 PLAIN_SCALARS = (np.generic, bool, int, float, complex, str, type(None))
 N_ITER = 5  # ARC:130
-
-
-def _import_escape():
-    """Return (ESCAPE_solve, mhd_load, route) for the ESCAPE layout in the checkout."""
-    try:
-        from escape.ESCAPE.ESCAPE_solve import ESCAPE_solve
-        route = "escape (installed)"
-    except ImportError:
-        if (ESCAPE_ROOT / "src" / "escape").is_dir():
-            sys.path.insert(0, str(ESCAPE_ROOT / "src"))
-            from escape.ESCAPE.ESCAPE_solve import ESCAPE_solve
-            route = "escape (ESCAPE_ROOT/src on sys.path)"
-        else:
-            sys.path.insert(0, str(ESCAPE_ROOT))
-            from src.ESCAPE.ESCAPE_solve import ESCAPE_solve
-            route = "src (ESCAPE_ROOT on sys.path)"
-    try:
-        from escape.helpers.parse_equil import mhd_load
-    except ImportError:
-        if str(ESCAPE_ROOT) not in sys.path:
-            sys.path.insert(0, str(ESCAPE_ROOT))
-        from helpers.parse_equil import mhd_load
-        route += ", helpers"
-    return ESCAPE_solve, mhd_load, route
 
 
 def load_digitized_profile(filepath):
@@ -55,7 +34,7 @@ def load_digitized_profile(filepath):
     return psi_N[unique], profile[unique]
 
 
-def arc_inputs(mhd_load):
+def arc_inputs():
     """The ESCAPE_solve arguments of the ARC example's first scan point, 1D scipy."""
     psi_N_ne, ne_ref = load_digitized_profile(ARC_DIR / "ARC_ne.csv")  # ARC:83
     psi_N_Te, Te_ref = load_digitized_profile(ARC_DIR / "ARC_Te.csv")  # ARC:84
@@ -155,15 +134,14 @@ def _keep(obj):
 
 
 def main(out_dir, result_file):
-    ESCAPE_solve, mhd_load, route = _import_escape()
-    ESCAPE_solve(**arc_inputs(mhd_load), out_dir=str(out_dir))
+    ESCAPE_solve(**arc_inputs(), out_dir=str(out_dir))
     iters = []
     for k in range(N_ITER):
         path = Path(out_dir) / f"ne_and_Te_iter_{k}.npy"
         if not path.exists():
             break
         iters.append(plain(np.load(path, allow_pickle=True).item()))
-    np.save(result_file, {"route": route, "iterations": iters}, allow_pickle=True)
+    np.save(result_file, {"iterations": iters}, allow_pickle=True)
 
 
 if __name__ == "__main__":
