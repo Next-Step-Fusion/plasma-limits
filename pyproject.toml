@@ -36,7 +36,7 @@ testpaths = ["tests"]
 markers = [
     "slow: end-to-end runs with real EPED1 (starts Julia)",
     "cluster: needs Firedrake",
-    "integration: ARC run of ESCAPE (1D scipy, real EPED1) against tests/data/arc_1d_baseline.npy",
+    "integration: ARC runs of ESCAPE (1D scipy and 3D Firedrake, real EPED1) against tests/data/arc_*_baseline.npy",
 ]
 
 [tool.uv.sources]

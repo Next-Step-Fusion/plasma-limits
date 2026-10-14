@@ -1,15 +1,16 @@
 """Run ESCAPE once on the ARC example inputs and save the per-iteration results.
 
 The inputs copy ESCAPE's examples/device_prediction/ARC/scan_SCfp_ESCAPE_ARC.py
-(cited as ``ARC:<line>``), with the 1D scipy model. EPED1 runs through Julia.
+(cited as ``ARC:<line>``), with the 1D scipy model or the 3D Firedrake model.
+EPED1 runs through Julia.
 
-Usage:  python tests/arc_integration_driver.py <out_dir> <result_file>
+Usage:  python tests/arc_integration_driver.py <out_dir> <result_file> [--model {1d,3d}]
 
 ESCAPE_solve writes its iteration files into <out_dir> and deletes everything
 else in it. The driver then saves the plain values of all iterations as one
 dict in <result_file> (np.save, loads with numpy alone).
 """
-import sys
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -34,8 +35,11 @@ def load_digitized_profile(filepath):
     return psi_N[unique], profile[unique]
 
 
-def arc_inputs():
-    """The ESCAPE_solve arguments of the ARC example's first scan point, 1D scipy."""
+def arc_inputs(model='1d'):
+    """The ESCAPE_solve arguments of the ARC example's first scan point.
+
+    model='1d' is the 1D scipy model; model='3d' is the ARC default, 3D Firedrake.
+    """
     psi_N_ne, ne_ref = load_digitized_profile(ARC_DIR / "ARC_ne.csv")  # ARC:83
     psi_N_Te, Te_ref = load_digitized_profile(ARC_DIR / "ARC_Te.csv")  # ARC:84
     kprof_params = {  # ARC:91-96
@@ -52,9 +56,11 @@ def arc_inputs():
         'nCX_threshold': None,
         'x_method': 'radas',
         'verbose': False,
-        'model': '1D',  # ARC:30 default is '3D'
-        'implementation': 'scipy',  # ARC:31 default is 'firedrake'
     }
+    if model == '3d':
+        sc_params.update(model='3D', implementation='firedrake')  # ARC:30-31
+    else:
+        sc_params.update(model='1D', implementation='scipy')
     sc_params.update({  # ARC:153-160
         'x_res': 40,
         'ne_grad_bc_loc': 'inner',  # ARC:32
@@ -133,8 +139,8 @@ def _keep(obj):
     return isinstance(obj, PLAIN_SCALARS)
 
 
-def main(out_dir, result_file):
-    ESCAPE_solve(**arc_inputs(), out_dir=str(out_dir))
+def main(out_dir, result_file, model='1d'):
+    ESCAPE_solve(**arc_inputs(model), out_dir=str(out_dir))
     iters = []
     for k in range(N_ITER):
         path = Path(out_dir) / f"ne_and_Te_iter_{k}.npy"
@@ -145,4 +151,9 @@ def main(out_dir, result_file):
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]), Path(sys.argv[2]))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("out_dir", type=Path)
+    parser.add_argument("result_file", type=Path)
+    parser.add_argument("--model", choices=["1d", "3d"], default="1d")
+    args = parser.parse_args()
+    main(args.out_dir, args.result_file, args.model)
