@@ -1,13 +1,16 @@
 """ARC example runs of ESCAPE (real EPED1) against recorded baselines.
 
-- 1d: 1D scipy, in this interpreter, compared bit for bit.
+- 1d: 1D scipy, in this interpreter, compared bit for bit, in both driver modes
+  (file: ESCAPE_solve defaults; memory: the in-memory keywords).
 - 3d: 3D Firedrake, in an interpreter that has Firedrake, compared to rtol=1e-10.
   PyOP2 builds its kernels for the local CPU, so a baseline from another
   machine can differ in the last bits. The case is skipped if no interpreter
   can import Firedrake.
 
 Run with:  uv run pytest -m integration
-To record a new baseline on purpose:  ESCAPE_UPDATE_BASELINE=1 uv run pytest -m integration -k <1d|3d>
+To record a new baseline on purpose:
+    ESCAPE_UPDATE_BASELINE=1 uv run pytest -m integration -k "1d-file or 3d-file"
+Both modes of a model compare with the same baseline.
 
 The 3D case finds Firedrake through FIREDRAKE_PYTHON, then this interpreter,
 then <repo>/firedrake-venv. PETSC_DIR, PETSC_ARCH, CC and CXX come from the
@@ -126,8 +129,8 @@ def _firedrake_runner(tmp_path):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("model", ["1d", "3d"])
-def test_arc_run_matches_baseline(model, tmp_path):
+@pytest.mark.parametrize("model, mode", [("1d", "file"), ("1d", "memory"), ("3d", "file")])
+def test_arc_run_matches_baseline(model, mode, tmp_path):
     if model == "3d":
         python, env = _firedrake_runner(tmp_path)
         rtol = RTOL_3D
@@ -139,18 +142,18 @@ def test_arc_run_matches_baseline(model, tmp_path):
     out_dir, result_file = tmp_path / "out", tmp_path / "result.npy"
     out_dir.mkdir()
     status_before = _submodule_status()
-    subprocess.run([str(python), str(DRIVER), str(out_dir), str(result_file), "--model", model],
-                   env=env, check=True)
+    subprocess.run([str(python), str(DRIVER), str(out_dir), str(result_file),
+                    "--model", model, "--mode", mode], env=env, check=True)
     assert _submodule_status() == status_before, "the ARC run changed files in the ESCAPE submodule"
 
     result = np.load(result_file, allow_pickle=True).item()
     iterations = result["iterations"]
     assert len(iterations) == 5
 
-    if os.environ.get("ESCAPE_UPDATE_BASELINE") == "1":
+    if os.environ.get("ESCAPE_UPDATE_BASELINE") == "1" and mode == "file":
         np.save(baseline_file, {"iterations": iterations}, allow_pickle=True)
         pytest.fail(f"Baseline written to {baseline_file}. Unset ESCAPE_UPDATE_BASELINE and run again.")
 
     baseline = np.load(baseline_file, allow_pickle=True).item()["iterations"]
     differences = _diff(iterations, baseline, "iterations", rtol)
-    assert not differences, f"ARC {model} run differs from the baseline at:\n" + "\n".join(differences[:20])
+    assert not differences, f"ARC {model} {mode} run differs from the baseline at:\n" + "\n".join(differences[:20])

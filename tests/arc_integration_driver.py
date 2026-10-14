@@ -4,11 +4,17 @@ The inputs copy ESCAPE's examples/device_prediction/ARC/scan_SCfp_ESCAPE_ARC.py
 (cited as ``ARC:<line>``), with the 1D scipy model or the 3D Firedrake model.
 EPED1 runs through Julia.
 
-Usage:  python tests/arc_integration_driver.py <out_dir> <result_file> [--model {1d,3d}]
+Usage:  python tests/arc_integration_driver.py <out_dir> <result_file>
+            [--model {1d,3d}] [--mode {file,memory}]
 
 ESCAPE_solve writes its iteration files into <out_dir> and deletes everything
 else in it. The driver then saves the plain values of all iterations as one
 dict in <result_file> (np.save, loads with numpy alone).
+
+Modes:
+- file: ESCAPE_solve with its default arguments, as the author's drivers call it.
+- memory: the in-memory keywords: the EPEDNN model is loaded with
+  load_epednn_model and given to ESCAPE_solve as epednn_model.
 """
 import argparse
 from pathlib import Path
@@ -16,6 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from escape.ESCAPE.ESCAPE_solve import ESCAPE_solve
+from escape.epednn.epednn_call import load_epednn_model
 from escape.helpers.parse_equil import mhd_load
 
 ESCAPE_ROOT = Path(__file__).resolve().parents[1] / "dependencies" / "ESCAPE"
@@ -139,8 +146,11 @@ def _keep(obj):
     return isinstance(obj, PLAIN_SCALARS)
 
 
-def main(out_dir, result_file, model='1d'):
-    ESCAPE_solve(**arc_inputs(model), out_dir=str(out_dir))
+def main(out_dir, result_file, model='1d', mode='file'):
+    inputs = arc_inputs(model)
+    if mode == 'memory':
+        inputs['epednn_model'] = load_epednn_model(inputs['epednn_params']['epednn_model'])
+    ESCAPE_solve(**inputs, out_dir=str(out_dir))
     iters = []
     for k in range(N_ITER):
         path = Path(out_dir) / f"ne_and_Te_iter_{k}.npy"
@@ -155,5 +165,6 @@ if __name__ == "__main__":
     parser.add_argument("out_dir", type=Path)
     parser.add_argument("result_file", type=Path)
     parser.add_argument("--model", choices=["1d", "3d"], default="1d")
+    parser.add_argument("--mode", choices=["file", "memory"], default="file")
     args = parser.parse_args()
-    main(args.out_dir, args.result_file, args.model)
+    main(args.out_dir, args.result_file, args.model, args.mode)
