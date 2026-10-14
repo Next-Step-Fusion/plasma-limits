@@ -47,6 +47,35 @@ ESCAPE_ROOT = _escape_root()
 _ARRAY_FIELDS = ("R", "Z", "psi", "F", "pressure", "boundary",
                  "psi_N_Te", "Te", "psi_N_ne", "ne",
                  "psi_N_Ti", "Ti", "psi_N_ni", "ni")
+_PROFILE_PAIRS = (("psi_N_Te", "Te"), ("psi_N_ne", "ne"),
+                  ("psi_N_Ti", "Ti"), ("psi_N_ni", "ni"))
+_SPECIES = ("D", "D-T")
+_GRID_RTOL = 1e-9
+_PSI_N_END_TOL = 1e-12
+
+
+def _check_uniform_grid(name, x):
+    """ESCAPE rebuilds R and Z with linspace from their end points, so other grids are misread."""
+    if x.ndim != 1 or len(x) < 2:
+        raise ValueError(f"{name} must be a 1D array with at least 2 points, got shape {x.shape}")
+    step = np.diff(x)
+    if not np.all(step > 0):
+        raise ValueError(f"{name} must increase strictly")
+    if not np.allclose(step, (x[-1] - x[0]) / (len(x) - 1), rtol=_GRID_RTOL, atol=0.0):
+        raise ValueError(f"{name} must be uniform: ESCAPE rebuilds it with linspace from its end points")
+
+
+def _check_profile(grid_name, grid, name, values):
+    if grid.ndim != 1 or values.ndim != 1:
+        raise ValueError(f"{grid_name} and {name} must be 1D arrays")
+    if len(grid) != len(values):
+        raise ValueError(f"len({grid_name}) = {len(grid)} != len({name}) = {len(values)}")
+    if len(grid) < 2:
+        raise ValueError(f"{grid_name} must have at least 2 points")
+    if not np.all(np.diff(grid) > 0):
+        raise ValueError(f"{grid_name} must increase strictly")
+    if abs(grid[-1] - 1.0) > _PSI_N_END_TOL:
+        raise ValueError(f"{grid_name} must end at the separatrix (1.0), got {grid[-1]!r}")
 
 
 @dataclass(frozen=True, eq=False, kw_only=True)
@@ -56,6 +85,8 @@ class PedestalPlasmaState:
     The user fills in every field directly. The user is responsible for
     correct data and units. The state keeps float64, read-only copies of all
     arrays, so a later change to the caller's arrays has no effect on it.
+    The constructor raises ValueError on shapes, grids and field combinations
+    that make ESCAPE crash or misread the input.
 
     Equilibrium grid:
         R (nr,), Z (nz,): uniform 1D grids [m], nr == nz.
@@ -139,3 +170,40 @@ class PedestalPlasmaState:
             arr = np.array(value, dtype=np.float64)
             arr.flags.writeable = False
             object.__setattr__(self, name, arr)
+        self._validate()
+
+    def _validate(self):
+        """Raise ValueError on inputs that make ESCAPE crash or misread them without an error.
+
+        Units and physical values are not checked.
+        """
+        _check_uniform_grid("R", self.R)
+        _check_uniform_grid("Z", self.Z)
+        if len(self.R) != len(self.Z):
+            raise ValueError(
+                f"len(R) = {len(self.R)} != len(Z) = {len(self.Z)}: ESCAPE needs nr == nz, "
+                "because ESCAPE_state.calc_B(rgrid, zgrid) evaluates B point by point")
+        if self.psi.shape != (len(self.Z), len(self.R)):
+            raise ValueError(f"psi must have shape (len(Z), len(R)) = {(len(self.Z), len(self.R))}, "
+                             f"got {self.psi.shape}")
+        if self.F.ndim != 1:
+            raise ValueError(f"F must be a 1D array, got shape {self.F.shape}")
+        if self.pressure is not None and self.pressure.shape != self.F.shape:
+            raise ValueError(f"pressure must have the shape of F {self.F.shape}, got {self.pressure.shape}")
+        if self.boundary.ndim != 2 or self.boundary.shape[1] != 2 or len(self.boundary) < 3:
+            raise ValueError(f"boundary must have shape (N, 2) with N >= 3, got {self.boundary.shape}")
+
+        for grid_name, name in _PROFILE_PAIRS:
+            grid, values = getattr(self, grid_name), getattr(self, name)
+            if grid is None and values is None:
+                continue
+            if grid is None or values is None:
+                raise ValueError(f"give both {grid_name} and {name}, or neither")
+            _check_profile(grid_name, grid, name, values)
+        if not self.Ti_follows_Te and self.Ti is None:
+            raise ValueError("Ti_follows_Te=False needs Ti and psi_N_Ti")
+        if not self.quasineutral and self.ni is None:
+            raise ValueError("quasineutral=False needs ni and psi_N_ni")
+
+        if self.species not in _SPECIES:
+            raise ValueError(f"species must be one of {_SPECIES}, got {self.species!r}")

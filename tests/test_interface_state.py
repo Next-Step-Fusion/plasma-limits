@@ -69,3 +69,50 @@ def test_caller_arrays_are_copied(synthetic_inputs):
             value[...] = -1.0
     for name, arr in expected.items():
         np.testing.assert_array_equal(getattr(state, name), arr)
+
+
+def _set(**changes):
+    return lambda inputs: changes
+
+
+INVALID = {
+    "R_2d": (lambda d: {"R": d["R"].reshape(1, -1)}, "R must be a 1D array"),
+    "R_one_point": (_set(R=[2.0]), "R must be a 1D array with at least 2 points"),
+    "R_decreasing": (lambda d: {"R": d["R"][::-1]}, "R must increase strictly"),
+    "R_not_uniform": (_set(R=[1.0, 1.4, 2.0, 2.5, 3.0]), "R must be uniform"),
+    "Z_not_uniform": (_set(Z=[-1.0, -0.6, 0.0, 0.5, 1.0]), "Z must be uniform"),
+    "nr_not_nz": (lambda d: {"R": np.linspace(1.0, 3.0, 6), "psi": np.zeros((5, 6))}, "nr == nz"),
+    "psi_shape": (lambda d: {"psi": d["psi"][:4]}, r"psi must have shape"),
+    "F_2d": (lambda d: {"F": d["F"].reshape(2, 3)}, "F must be a 1D array"),
+    "pressure_length": (_set(pressure=np.zeros(5)), "pressure must have the shape of F"),
+    "boundary_columns": (lambda d: {"boundary": d["boundary"][:, :1]}, r"boundary must have shape \(N, 2\)"),
+    "boundary_transposed": (lambda d: {"boundary": d["boundary"].T}, r"boundary must have shape \(N, 2\)"),
+    "boundary_short": (lambda d: {"boundary": d["boundary"][:2]}, "N >= 3"),
+    "profile_2d": (lambda d: {"Te": d["Te"].reshape(2, 3)}, "psi_N_Te and Te must be 1D"),
+    "profile_length": (lambda d: {"Te": d["Te"][:5]}, r"len\(psi_N_Te\) = 6 != len\(Te\) = 5"),
+    "profile_one_point": (_set(psi_N_ne=[1.0], ne=[1e20]), "psi_N_ne must have at least 2 points"),
+    "psi_N_not_increasing": (_set(psi_N_ne=[0.0, 0.2, 0.2, 0.6, 0.8, 1.0]), "psi_N_ne must increase strictly"),
+    "psi_N_not_at_1": (lambda d: {"psi_N_Te": 0.9 * d["psi_N_Te"]}, "psi_N_Te must end at the separatrix"),
+    "Ti_without_grid": (lambda d: {"Ti": d["Te"]}, "give both psi_N_Ti and Ti"),
+    "ni_grid_only": (lambda d: {"psi_N_ni": d["psi_N_ne"]}, "give both psi_N_ni and ni"),
+    "Ti_bad_profile": (lambda d: {"psi_N_Ti": d["psi_N_Te"][::-1], "Ti": d["Te"]}, "psi_N_Ti must increase"),
+    "no_Ti_follows_Te": (_set(Ti_follows_Te=False), "Ti_follows_Te=False needs Ti"),
+    "no_ni_quasineutral": (_set(quasineutral=False), "quasineutral=False needs ni"),
+    "species": (_set(species="T"), "species must be one of"),
+}
+
+
+@pytest.mark.parametrize("change, match", INVALID.values(), ids=INVALID.keys())
+def test_invalid_input_raises(synthetic_inputs, change, match):
+    with pytest.raises(ValueError, match=match):
+        PedestalPlasmaState(**{**synthetic_inputs, **change(synthetic_inputs)})
+
+
+def test_valid_input_passes(synthetic_inputs):
+    d = synthetic_inputs
+    PedestalPlasmaState(**d)
+    PedestalPlasmaState(**{**d, "pressure": np.zeros(6), "species": "D-T",
+                           "psi_N_Ti": d["psi_N_Te"], "Ti": d["Te"], "Ti_follows_Te": False,
+                           "psi_N_ni": d["psi_N_ne"], "ni": d["ne"], "quasineutral": False})
+    PedestalPlasmaState(**{**d, "psi_N_Te": np.append(d["psi_N_Te"][:-1], 1.0 - 1e-13),
+                           "R": d["R"] * (1.0 + 1e-12 * np.arange(5))})
