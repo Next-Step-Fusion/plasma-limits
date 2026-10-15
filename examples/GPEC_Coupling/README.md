@@ -20,9 +20,10 @@ computes:
 | `kink_tearing_stability.ipynb` | Main notebook. Run it from top to bottom |
 | `g147131.02300_DIIID_KEFIT` | gEQDSK file from a kinetic EFIT reconstruction |
 | `g147131.02300_DIIID_KEFIT_corrected.kin` | Kinetic profiles ($n_{e,i}$, $T_{e,i}$, $\omega_{E \times B}$) vs. $\hat{\psi}$ |
+| `DIIID_mesh.h5` | DIII-D TokaMaker mesh, taken from the OFT DIII-D baseline example |
 | `requirements_GPEC_Coupling.txt` | Python packages needed in addition to OFT |
 
-The notebook also uses the DIII-D mesh from `examples/TokaMaker/DIIID`. At runtime it creates a
+At runtime the notebook creates a
 `gpec_runs/` directory with the gEQDSK, `gpec.toml` and `gpec.h5` files for each scan point.
 
 ## Setup
