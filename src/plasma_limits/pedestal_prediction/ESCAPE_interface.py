@@ -22,13 +22,17 @@ its Julia EPEDNN model relative to its own source files. ``ESCAPE_ROOT`` is
 that checkout; ESCAPE_io.py and the tests use it to find ESCAPE's example and
 data files.
 """
+import copy
+import dataclasses
 import importlib.util
-from dataclasses import dataclass
+import types
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 
-__all__ = ["PedestalPlasmaState"]
+__all__ = ["PedestalPlasmaState", "FreeParams", "SCConfig"]
 
 
 def _escape_root():
@@ -246,3 +250,119 @@ class PedestalPlasmaState:
         if self.ni is not None:
             pairs.update(n_i=self.ni, psin_ni=self.psi_N_ni)
         return {key: arr.copy() for key, arr in pairs.items()}
+
+
+@dataclass(frozen=True, kw_only=True)
+class FreeParams:
+    """Free parameters of the Saarelma-Connor model. The defaults are the ARC values.
+
+    alpha_crit: critical normalized pressure gradient for the KBM transport.
+    C_KBM: KBM diffusion coefficient.
+    De_chie_etg: ratio of the ETG particle diffusivity to the electron heat diffusivity.
+    nFC_x0: Franck-Condon neutral density at the separatrix [m^-3].
+    ncx_x0_ratio: ratio of the charge-exchange to the Franck-Condon neutral
+        density at the separatrix (3D model only).
+    """
+
+    alpha_crit: float = 0.01
+    C_KBM: float = 0.3
+    De_chie_etg: float = 0.1
+    nFC_x0: float = 1e15
+    ncx_x0_ratio: float = 15
+
+
+_SOLVE_KEYWORD_FIELDS = ("tanh_center_psiN", "psiN_pwg")
+
+
+@dataclass(frozen=True, kw_only=True)
+class SCConfig:
+    """Saarelma-Connor solver settings of one ESCAPE run. All fields are keyword-only.
+
+    The defaults are the sc_params of ESCAPE's ARC driver, with the 1D model
+    and the scipy implementation. Each key has the name and meaning that
+    ESCAPE gives it (init_saarelmaconnor and the solve_* methods of the
+    Saarelma-Connor solvers). The solver ignores the keys that the selected
+    model and implementation do not use.
+
+    Inner boundary: psi_N_inner_boundary, or None to find it from
+        nFC_threshold and nCX_threshold.
+    Model: model ('1D' or '3D'), implementation ('scipy' or 'firedrake').
+        3D needs Firedrake, also with 'scipy'.
+    Shared solver settings: x_method, verbose, x_res, ne_grad_bc_loc,
+        picard_max_it, picard_rtol, picard_relax, reuse_setup.
+    scipy settings: bvp_tol, bvp_max_nodes.
+    Firedrake settings: fe_degree, grad_bc_tol, grad_bc_max_it, grad_bc_seed,
+        linear_solver, ksp_rtol, ksp_max_it.
+    3D settings: nCX_ic, nFC_ic, neutrals_treatment, n_neutral_sub.
+    1D settings: eq6_form, first_step.
+    free_params: FreeParams.
+    Initial guess of ne in iteration 0:
+        initial_guess: 'tanh' or 'tanh_linear'.
+        tanh_center_psiN: center of the tanh [psi_N]. None uses the solver default.
+        psiN_pwg: pedestal top (1 - pedestal width) [psi_N], for 'tanh_linear'.
+    solver_kwargs: more solver keywords (for example dne_method, ne_inner_bc),
+        added to the sc_params as they are. The config keeps a read-only copy.
+    """
+
+    psi_N_inner_boundary: float | None = 0.85
+    nFC_threshold: float | None = None
+    nCX_threshold: float | None = None
+    x_method: str = "radas"
+    verbose: bool = False
+    model: str = "1D"
+    implementation: str = "scipy"
+
+    x_res: int = 40
+    ne_grad_bc_loc: str = "inner"
+    picard_max_it: int = 50
+    picard_rtol: float = 1e-6
+    picard_relax: float = 1.0
+    reuse_setup: bool = False
+
+    bvp_tol: float = 1e-6
+    bvp_max_nodes: int = 5000
+
+    fe_degree: int = 2
+    grad_bc_tol: float = 1e-8
+    grad_bc_max_it: int = 25
+    grad_bc_seed: float | None = None
+    linear_solver: str = "lu"
+    ksp_rtol: float = 1e-8
+    ksp_max_it: int = 200
+
+    nCX_ic: str = "scale nFC"
+    nFC_ic: str = "solve"
+    neutrals_treatment: str = "fem"
+    n_neutral_sub: int = 4001
+
+    eq6_form: str = "complete"
+    first_step: str = "auto"
+
+    free_params: FreeParams = FreeParams()
+
+    initial_guess: str = "tanh"
+    tanh_center_psiN: float | None = None
+    psiN_pwg: float | None = None
+
+    solver_kwargs: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self):
+        object.__setattr__(self, "solver_kwargs",
+                           types.MappingProxyType(copy.deepcopy(dict(self.solver_kwargs))))
+
+    def to_params(self):
+        """The sc_params dict for ESCAPE_solve, with free_params as a plain dict.
+
+        ESCAPE_solve changes the dict that it gets (initial_guess, tanh_center,
+        x_pwg), and a changed dict changes the next run that uses it. Thus each
+        call returns a new dict, with deep copies of the solver_kwargs values.
+        """
+        params = {f.name: getattr(self, f.name) for f in dataclasses.fields(self)
+                  if f.name not in _SOLVE_KEYWORD_FIELDS and f.name != "solver_kwargs"}
+        params["free_params"] = dataclasses.asdict(self.free_params)
+        params.update(copy.deepcopy(dict(self.solver_kwargs)))
+        return params
+
+    def _solve_keywords(self):
+        """The ESCAPE_solve keywords that set the initial guess in psi_N."""
+        return {name: getattr(self, name) for name in _SOLVE_KEYWORD_FIELDS}
