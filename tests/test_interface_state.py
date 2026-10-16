@@ -192,3 +192,31 @@ def test_kprof_params_reproduce_reference(arc_state, ref_profiles):
     assert set(kprof) == set(ref_profiles)
     for key, value in kprof.items():
         np.testing.assert_array_equal(value, ref_profiles[key], err_msg=key)
+
+
+GEOMETRY_EXACT = ("Rmajor", "a", "kappa", "delta", "psi_N_pres", "V_plasma", "S_plasma", "r_psi")
+GEOMETRY_CLOSE = ("gradr_fsa", "gradr2_fsa")
+
+
+def _escape_kwargs(state):
+    """Keywords of ESCAPE(...) from a PedestalPlasmaState, as in the Appendix A mapping of TASK.md."""
+    return dict(
+        Z_i=state.Z_i, Z_eff=state.Z_eff, P_tot_e=state.P_tot_e, ne_x0=state.ne_sep,
+        equil_params=state._to_escape_dict(), kprof_params=state._to_kprof_params(),
+        quasineutral_flag=state.quasineutral, T_rat_flag=state.Ti_follows_Te, T_rat=state.T_rat,
+        pol_norm=state.pol_norm, species=state.species, regime_flag=state.regime, verbose=False,
+    )
+
+
+def test_escape_geometry_from_arc_state(arc_state, ref_arc):
+    """ESCAPE built from arc_state gives the geometry of the reference run (g-file mapping end to end)."""
+    from escape.ESCAPE.ESCAPE_api import ESCAPE
+
+    escape_state = ESCAPE(**_escape_kwargs(arc_state))
+    ref = ref_arc["state"]
+    np.testing.assert_array_equal(escape_state.rgrid, arc_state.R)
+    np.testing.assert_array_equal(escape_state.zgrid, arc_state.Z)
+    for name in GEOMETRY_EXACT:
+        np.testing.assert_array_equal(getattr(escape_state, name), ref[name], err_msg=name)
+    for name in GEOMETRY_CLOSE:
+        np.testing.assert_allclose(getattr(escape_state, name), ref[name], rtol=1e-12, atol=0, err_msg=name)
