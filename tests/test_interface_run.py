@@ -1,10 +1,14 @@
-"""run_escape: the checks before the run (fast), and real runs on arc_state with real EPED1 (slow).
+"""run_escape: the checks before the run (fast), and real runs on arc_state with real EPED1 (slow, integration).
 
-The slow runs use nothing fake: real EPED1 through juliacall and the real
-ESCAPE_solve with the 1D scipy defaults. Their records must equal
-arc_1d_baseline.npy, which ESCAPE's own file path wrote from the same inputs.
+The runs use nothing fake: real EPED1 through juliacall and the real
+ESCAPE_solve. The slow runs use the 1D scipy defaults, and their records must
+equal arc_1d_baseline.npy, which ESCAPE's own file path wrote from the same
+inputs. The integration run uses 3D Firedrake in an interpreter that has
+Firedrake, and compares with arc_3d_baseline.npy.
 """
 import importlib.util
+import pickle
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -26,8 +30,13 @@ def _load_tests_module(name):
 
 
 @pytest.fixture(scope="module")
-def diff():
-    return _load_tests_module("test_arc_integration")._diff
+def arc_integration():
+    return _load_tests_module("test_arc_integration")
+
+
+@pytest.fixture(scope="module")
+def diff(arc_integration):
+    return arc_integration._diff
 
 
 @pytest.fixture(scope="module")
@@ -81,20 +90,27 @@ def baseline_iterations():
     return np.load(TESTS_DIR / "data" / "arc_1d_baseline.npy", allow_pickle=True).item()["iterations"]
 
 
+def _fields(record):
+    """The fields of an IterationRecord, or the dict from its to_dict()."""
+    return record if isinstance(record, dict) else vars(record)
+
+
 def _as_sol(record, sol_keys):
     """The record with ESCAPE's iteration-dict keys, as in the baseline file."""
-    sol = {key: getattr(record, name) for name, key in sol_keys.items() if key != "T_e_pres"}
-    if record.loop_tol is not None:
-        sol["loop_tol"] = record.loop_tol
+    fields = _fields(record)
+    sol = {key: fields[name] for name, key in sol_keys.items() if key != "T_e_pres"}
+    if fields["loop_tol"] is not None:
+        sol["loop_tol"] = fields["loop_tol"]
     return sol
 
 
-def _assert_records_equal_baseline(history, baseline_iterations, sol_keys, diff):
+def _assert_records_equal_baseline(history, baseline_iterations, sol_keys, diff, rtol=0.0):
     for record, expected in zip(history, baseline_iterations):
-        assert diff(_as_sol(record, sol_keys), expected, f"iteration {record.iteration}") == []
-        assert record.T_e_pres.shape == record.psi_N_pres.shape
-        assert np.all(np.isfinite(record.T_e_pres))
-        assert np.isfinite(record.betan)
+        fields = _fields(record)
+        assert diff(_as_sol(record, sol_keys), expected, f"iteration {fields['iteration']}", rtol) == []
+        assert fields["T_e_pres"].shape == fields["psi_N_pres"].shape
+        assert np.all(np.isfinite(fields["T_e_pres"]))
+        assert np.isfinite(fields["betan"])
 
 
 @pytest.fixture(scope="module")
@@ -130,7 +146,17 @@ def test_run_callback_and_no_side_effects(full_run):
 
 @pytest.mark.slow
 def test_run_stops_on_tol(arc_state, eped1, baseline_iterations, sol_keys, diff, tmp_path, monkeypatch):
-    """Baseline loop_tol of iteration 1 is 0.272, so tol=0.3 stops there."""
+    """Baseline loop_tol of iteration 1 is 0.272, so tol=0.3 stops there.
+
+    ESCAPE loads EPED through epednn_call.load_epednn_model, which raises here:
+    the run uses the given EPEDModel and loads no model.
+    """
+    from escape.epednn import epednn_call
+
+    def no_load(*args, **kwargs):
+        raise AssertionError("run_escape loaded the EPED model again")
+
+    monkeypatch.setattr(epednn_call, "load_epednn_model", no_load)
     monkeypatch.chdir(tmp_path)
     result = run_escape(arc_state, eped1, max_iter=N_BASELINE_ITER, tol=0.3)
     assert result.n_iter == 2
@@ -151,3 +177,24 @@ def test_run_error_keeps_history(arc_state, eped1, tmp_path, monkeypatch):
         run_escape(arc_state, eped1, max_iter=N_BASELINE_ITER, on_iteration=on_iteration)
     assert [record.iteration for record in excinfo.value.history] == [0, 1]
     assert excinfo.value.__cause__ is failure
+
+
+@pytest.mark.integration
+def test_run_3d_firedrake_matches_baseline(arc_state, arc_integration, sol_keys, diff, tmp_path):
+    """run_escape with 3D Firedrake, in the driver's interface mode (skipped without Firedrake)."""
+    python, env = arc_integration._firedrake_runner(tmp_path)
+    state_file, out_dir, result_file = tmp_path / "state.pkl", tmp_path / "out", tmp_path / "result.npy"
+    state_file.write_bytes(pickle.dumps(arc_state))
+    out_dir.mkdir()
+    status_before = arc_integration._submodule_status()
+    subprocess.run([str(python), str(arc_integration.DRIVER), str(out_dir), str(result_file),
+                    "--model", "3d", "--mode", "interface", "--state", str(state_file)], env=env, check=True)
+    assert arc_integration._submodule_status() == status_before
+    assert list(out_dir.iterdir()) == [], "run_escape wrote into its working directory"
+
+    result = np.load(result_file, allow_pickle=True).item()
+    assert result["n_iter"] == N_BASELINE_ITER
+    assert result["converged"] is False
+    assert [record["iteration"] for record in result["history"]] == list(range(N_BASELINE_ITER))
+    baseline = np.load(TESTS_DIR / "data" / "arc_3d_baseline.npy", allow_pickle=True).item()["iterations"]
+    _assert_records_equal_baseline(result["history"], baseline, sol_keys, diff, arc_integration.RTOL_3D)

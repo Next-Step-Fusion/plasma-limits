@@ -5,7 +5,7 @@ The inputs copy ESCAPE's examples/device_prediction/ARC/scan_SCfp_ESCAPE_ARC.py
 EPED1 runs through Julia.
 
 Usage:  python tests/arc_integration_driver.py <out_dir> <result_file>
-            [--model {1d,3d}] [--mode {file,memory}]
+            [--model {1d,3d}] [--mode {file,memory,interface}] [--state <file>]
 
 In file mode, ESCAPE_solve writes its iteration files into <out_dir> and deletes
 everything else in it. In memory mode, <out_dir> is not used. The driver saves
@@ -19,9 +19,15 @@ Modes:
   and the iterations come from on_iteration. The two keys that
   on_iteration adds (betan, T_e_pres) are moved to result['extras'], so
   result['iterations'] has the same form as in file mode.
+- interface: plasma_limits' run_escape on the PedestalPlasmaState pickled in
+  <file> (not the ARC inputs above), with <out_dir> as the working
+  directory. <result_file> holds ESCAPEResult.to_dict().
 """
 import argparse
+import contextlib
 import copy
+import dataclasses
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -151,7 +157,11 @@ def _keep(obj):
     return isinstance(obj, PLAIN_SCALARS)
 
 
-def main(out_dir, result_file, model='1d', mode='file'):
+def main(out_dir, result_file, model='1d', mode='file', state_file=None):
+    if mode == 'interface':
+        result = _run_interface(out_dir, state_file, model)
+        np.save(result_file, result, allow_pickle=True)
+        return
     inputs = arc_inputs(model)
     if mode == 'file':
         ESCAPE_solve(**inputs, out_dir=str(out_dir))
@@ -170,6 +180,22 @@ def main(out_dir, result_file, model='1d', mode='file'):
     np.save(result_file, result, allow_pickle=True)
 
 
+def _run_interface(out_dir, state_file, model):
+    """ESCAPEResult.to_dict() of run_escape on the pickled state, run in out_dir."""
+    from plasma_limits.pedestal_prediction.ESCAPE_interface import (PedestalPlasmaState, SCConfig,
+                                                                  load_eped_model, run_escape)
+
+    with open(state_file, 'rb') as f:
+        pickled = pickle.load(f)
+    # Unpickling skips __post_init__: the constructor makes the arrays read-only and checks them.
+    state = PedestalPlasmaState(**{f.name: getattr(pickled, f.name) for f in dataclasses.fields(pickled)})
+    sc = SCConfig(model='3D', implementation='firedrake') if model == '3d' else SCConfig()
+    eped = load_eped_model()
+    with contextlib.chdir(out_dir):
+        result = run_escape(state, eped, sc, max_iter=N_ITER)
+    return result.to_dict()
+
+
 def _read_iteration_files(out_dir):
     iters = []
     for k in range(N_ITER):
@@ -185,6 +211,9 @@ if __name__ == "__main__":
     parser.add_argument("out_dir", type=Path)
     parser.add_argument("result_file", type=Path)
     parser.add_argument("--model", choices=["1d", "3d"], default="1d")
-    parser.add_argument("--mode", choices=["file", "memory"], default="file")
+    parser.add_argument("--mode", choices=["file", "memory", "interface"], default="file")
+    parser.add_argument("--state", type=Path, help="pickled PedestalPlasmaState (interface mode)")
     args = parser.parse_args()
-    main(args.out_dir, args.result_file, args.model, args.mode)
+    if args.mode == "interface" and args.state is None:
+        parser.error("--mode interface needs --state")
+    main(args.out_dir, args.result_file, args.model, args.mode, args.state)

@@ -43,7 +43,6 @@ addopts = "--import-mode=importlib --strict-markers -m 'not slow and not integra
 testpaths = ["tests"]
 markers = [
     "slow: end-to-end runs with real EPED1 (starts Julia)",
-    "cluster: needs Firedrake",
     "integration: ARC runs of ESCAPE (1D scipy and 3D Firedrake, real EPED1) against tests/data/arc_*_baseline.npy",
 ]
 
