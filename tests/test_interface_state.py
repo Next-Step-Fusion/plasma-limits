@@ -116,3 +116,79 @@ def test_valid_input_passes(synthetic_inputs):
                            "psi_N_ni": d["psi_N_ne"], "ni": d["ne"], "quasineutral": False})
     PedestalPlasmaState(**{**d, "psi_N_Te": np.append(d["psi_N_Te"][:-1], 1.0 - 1e-13),
                            "R": d["R"] * (1.0 + 1e-12 * np.arange(5))})
+
+
+ESCAPE_EQ_KEYS = {"nr", "nz", "rleft", "rdim", "zmid", "zdim", "psirz", "raxis", "zaxis",
+                  "psimag", "psibry", "fpol", "pres", "ip", "rzout"}
+GRID_SCALARS = ("rleft", "rdim", "zmid", "zdim")
+
+
+def test_escape_dict_reproduces_gfile(arc_state, ref_eq):
+    eq = arc_state._to_escape_dict()
+    assert set(eq) == ESCAPE_EQ_KEYS
+    for key, value in eq.items():
+        ref = ref_eq[key]
+        if isinstance(value, np.ndarray):
+            assert value.dtype == ref.dtype, key
+            np.testing.assert_array_equal(value, ref, err_msg=key)
+        elif key in GRID_SCALARS:
+            assert abs(value - ref) <= np.spacing(ref), key
+        else:
+            assert value == ref and type(value) is type(ref), key
+
+
+def test_escape_dict_arrays_are_fresh(arc_state):
+    eq, eq_again = arc_state._to_escape_dict(), arc_state._to_escape_dict()
+    state_arrays = _array_fields(arc_state).values()
+    for key, value in eq.items():
+        if isinstance(value, np.ndarray):
+            assert value.flags.writeable, key
+            assert not np.shares_memory(value, eq_again[key]), key
+            assert not any(np.shares_memory(value, arr) for arr in state_arrays), key
+
+
+def test_escape_dict_pressure(synthetic_inputs):
+    eq = PedestalPlasmaState(**synthetic_inputs)._to_escape_dict()
+    np.testing.assert_array_equal(eq["pres"], np.zeros(6))
+    assert eq["pres"].flags.writeable
+    pressure = np.linspace(1e5, 1e3, 6)
+    eq = PedestalPlasmaState(**synthetic_inputs, pressure=pressure)._to_escape_dict()
+    np.testing.assert_array_equal(eq["pres"], pressure)
+
+
+KPROF_KEYS = {"T_e", "psin_Te", "n_e", "psin_ne"}
+KPROF_FIELDS = {"T_e": "Te", "psin_Te": "psi_N_Te", "n_e": "ne", "psin_ne": "psi_N_ne",
+                "T_i": "Ti", "psin_Ti": "psi_N_Ti", "n_i": "ni", "psin_ni": "psi_N_ni"}
+
+
+@pytest.mark.parametrize("with_Ti, with_ni", [(False, False), (True, False), (False, True), (True, True)])
+def test_kprof_params_keys_and_values(synthetic_inputs, with_Ti, with_ni):
+    d = dict(synthetic_inputs)
+    expected = set(KPROF_KEYS)
+    if with_Ti:
+        d.update(psi_N_Ti=d["psi_N_Te"], Ti=0.8 * d["Te"])
+        expected |= {"T_i", "psin_Ti"}
+    if with_ni:
+        d.update(psi_N_ni=d["psi_N_ne"], ni=0.9 * d["ne"])
+        expected |= {"n_i", "psin_ni"}
+    state = PedestalPlasmaState(**d)
+    kprof = state._to_kprof_params()
+    assert set(kprof) == expected
+    for key, value in kprof.items():
+        np.testing.assert_array_equal(value, getattr(state, KPROF_FIELDS[key]), err_msg=key)
+
+
+def test_kprof_params_arrays_are_fresh(arc_state):
+    kprof, kprof_again = arc_state._to_kprof_params(), arc_state._to_kprof_params()
+    state_arrays = _array_fields(arc_state).values()
+    for key, value in kprof.items():
+        assert value.flags.writeable, key
+        assert not np.shares_memory(value, kprof_again[key]), key
+        assert not any(np.shares_memory(value, arr) for arr in state_arrays), key
+
+
+def test_kprof_params_reproduce_reference(arc_state, ref_profiles):
+    kprof = arc_state._to_kprof_params()
+    assert set(kprof) == set(ref_profiles)
+    for key, value in kprof.items():
+        np.testing.assert_array_equal(value, ref_profiles[key], err_msg=key)

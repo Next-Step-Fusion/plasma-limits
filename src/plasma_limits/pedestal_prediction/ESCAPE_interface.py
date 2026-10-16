@@ -207,3 +207,42 @@ class PedestalPlasmaState:
 
         if self.species not in _SPECIES:
             raise ValueError(f"species must be one of {_SPECIES}, got {self.species!r}")
+
+    def _to_escape_dict(self):
+        """The equilibrium as ESCAPE's equil_params: the read_eqdsk keys that ESCAPE reads.
+
+        ESCAPE keeps references to the arrays, so each call returns fresh, writable copies.
+        Without a pressure, 'pres' is zeros: ESCAPE uses its length for the 1D psi grid
+        and reads its values only for EPED with pres_gfile=True.
+        """
+        R, Z = self.R, self.Z
+        return {
+            "nr": len(R),
+            "nz": len(Z),
+            "rleft": float(R[0]),
+            "rdim": float(R[-1] - R[0]),
+            "zmid": float((Z[0] + Z[-1]) / 2),
+            "zdim": float(Z[-1] - Z[0]),
+            "psirz": self.psi.copy(),
+            "raxis": float(self.R_axis),
+            "zaxis": float(self.Z_axis),
+            "psimag": float(self.psi_axis),
+            "psibry": float(self.psi_boundary),
+            "fpol": self.F.copy(),
+            "pres": np.zeros(len(self.F)) if self.pressure is None else self.pressure.copy(),
+            "ip": float(self.Ip),
+            "rzout": self.boundary.copy(),
+        }
+
+    def _to_kprof_params(self):
+        """The kinetic profiles as ESCAPE's kprof_params, with fresh, writable copies.
+
+        Ti and ni are included only when given; otherwise ESCAPE sets them from
+        Te (Ti_follows_Te) and ne (quasineutral).
+        """
+        pairs = {"T_e": self.Te, "psin_Te": self.psi_N_Te, "n_e": self.ne, "psin_ne": self.psi_N_ne}
+        if self.Ti is not None:
+            pairs.update(T_i=self.Ti, psin_Ti=self.psi_N_Ti)
+        if self.ni is not None:
+            pairs.update(n_i=self.ni, psin_ni=self.psi_N_ni)
+        return {key: arr.copy() for key, arr in pairs.items()}

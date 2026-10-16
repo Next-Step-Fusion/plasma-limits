@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from plasma_limits.pedestal_prediction.ESCAPE_interface import PedestalPlasmaState
+
 REF_DIR = Path(__file__).parent / "data"
 N_REF_ITERS = 5
 
@@ -46,6 +48,24 @@ def ref_profiles(ref_arc):
 def ref_free_params(ref_arc):
     """The Saarelma-Connor free parameters of the reference run."""
     return ref_arc["free_params"]
+
+
+@pytest.fixture(scope="session")
+def arc_state(ref_arc, ref_eq, ref_profiles):
+    """The reference ARC inputs as a PedestalPlasmaState (g-file mapping done here, on the test side)."""
+    eq = ref_eq
+    return PedestalPlasmaState(
+        R=np.linspace(eq["rleft"], eq["rleft"] + eq["rdim"], eq["nr"]),
+        Z=np.linspace(eq["zmid"] - eq["zdim"] / 2, eq["zmid"] + eq["zdim"] / 2, eq["nz"]),
+        psi=eq["psirz"],
+        psi_axis=eq["psimag"], psi_boundary=eq["psibry"],
+        R_axis=eq["raxis"], Z_axis=eq["zaxis"], Ip=eq["ip"],
+        F=eq["fpol"], pressure=eq["pres"],
+        boundary=eq["rzout"],
+        psi_N_Te=ref_profiles["psin_Te"], Te=ref_profiles["T_e"],
+        psi_N_ne=ref_profiles["psin_ne"], ne=ref_profiles["n_e"],
+        Z_eff=ref_arc["Zeff"], P_tot_e=ref_arc["P_tot_e"],
+    )
 
 
 @pytest.fixture
