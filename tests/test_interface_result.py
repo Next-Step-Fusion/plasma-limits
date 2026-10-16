@@ -131,7 +131,7 @@ def test_plain_keeps_baseline_diagnostics_as_copies(baseline_iterations, diff):
 
 
 def test_result_properties(records):
-    result = ESCAPEResult(converged=False, history=records, runtime_s=1.0)
+    result = ESCAPEResult(converged=False, history=records)
     assert result.history == tuple(records)
     assert result.n_iter == len(records)
     assert result.final is records[-1]
@@ -139,21 +139,21 @@ def test_result_properties(records):
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.converged = True
     with pytest.raises(TypeError):
-        ESCAPEResult(False, records, 1.0)
+        ESCAPEResult(False, records)
 
 
 def test_result_to_dict_has_no_state(records, diff):
-    result = ESCAPEResult(converged=True, history=records, runtime_s=2.5, state=_Live())
+    result = ESCAPEResult(converged=True, history=records, state=_Live())
     d = result.to_dict()
-    assert d.keys() == {"converged", "n_iter", "runtime_s", "history"}
-    assert (d["converged"], d["n_iter"], d["runtime_s"]) == (True, len(records), 2.5)
+    assert d.keys() == {"converged", "n_iter", "history"}
+    assert (d["converged"], d["n_iter"]) == (True, len(records))
     assert diff(d["history"], [record.to_dict() for record in records]) == []
     assert diff(pickle.loads(pickle.dumps(d)), d) == []
 
 
 def test_result_to_dict_loads_with_numpy_alone(records):
     """The pickled dict loads in a fresh interpreter that imports neither plasma_limits nor escape."""
-    payload = pickle.dumps(ESCAPEResult(converged=False, history=records, runtime_s=1.0).to_dict())
+    payload = pickle.dumps(ESCAPEResult(converged=False, history=records).to_dict())
     code = textwrap.dedent("""
         import json, pickle, sys
         d = pickle.load(sys.stdin.buffer)

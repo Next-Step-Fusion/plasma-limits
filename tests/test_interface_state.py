@@ -198,21 +198,27 @@ GEOMETRY_EXACT = ("Rmajor", "a", "kappa", "delta", "psi_N_pres", "V_plasma", "S_
 GEOMETRY_CLOSE = ("gradr_fsa", "gradr2_fsa")
 
 
-def _escape_kwargs(state):
-    """Keywords of ESCAPE(...) from a PedestalPlasmaState, as in the Appendix A mapping of TASK.md."""
-    return dict(
-        Z_i=state.Z_i, Z_eff=state.Z_eff, P_tot_e=state.P_tot_e, ne_x0=state.ne_sep,
-        equil_params=state._to_escape_dict(), kprof_params=state._to_kprof_params(),
-        quasineutral_flag=state.quasineutral, T_rat_flag=state.Ti_follows_Te, T_rat=state.T_rat,
-        pol_norm=state.pol_norm, species=state.species, regime_flag=state.regime, verbose=False,
-    )
+def test_solve_keywords_mapping(synthetic_inputs):
+    """The Appendix A mapping of TASK.md, with values that differ from the defaults."""
+    psi_N = synthetic_inputs["psi_N_Te"]
+    state = PedestalPlasmaState(**synthetic_inputs, species="D-T", Z_i=2, T_rat=1.3, Ti_follows_Te=False,
+                                psi_N_Ti=psi_N, Ti=np.linspace(4.0, 0.2, 6), quasineutral=False,
+                                psi_N_ni=psi_N, ni=np.linspace(9e19, 2e19, 6), regime="NT", ne_sep=4e19,
+                                pol_norm=True)
+    keywords = state._solve_keywords()
+    arrays = {key: keywords.pop(key) for key in ("equil_params", "kprof_params")}
+    assert keywords == {"Z_i": 2, "Z_eff": 1.5, "P_tot_e": 1e7, "ne_x0": 4e19, "quasineutral_flag": False,
+                        "T_rat_flag": False, "T_rat": 1.3, "pol_norm": True, "species": "D-T",
+                        "regime_flag": "NT"}
+    assert arrays["equil_params"].keys() == state._to_escape_dict().keys()
+    assert arrays["kprof_params"].keys() == state._to_kprof_params().keys()
 
 
 def test_escape_geometry_from_arc_state(arc_state, ref_arc):
     """ESCAPE built from arc_state gives the geometry of the reference run (g-file mapping end to end)."""
     from escape.ESCAPE.ESCAPE_api import ESCAPE
 
-    escape_state = ESCAPE(**_escape_kwargs(arc_state))
+    escape_state = ESCAPE(**arc_state._solve_keywords(), verbose=False)
     ref = ref_arc["state"]
     np.testing.assert_array_equal(escape_state.rgrid, arc_state.R)
     np.testing.assert_array_equal(escape_state.zgrid, arc_state.Z)

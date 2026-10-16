@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 
 __all__ = ["PedestalPlasmaState", "FreeParams", "SCConfig", "EPEDConfig", "EPEDModel", "load_eped_model",
-           "IterationRecord", "ESCAPEResult", "ESCAPERunError"]
+           "IterationRecord", "ESCAPEResult", "ESCAPERunError", "run_escape"]
 
 
 def _escape_root():
@@ -252,6 +252,23 @@ class PedestalPlasmaState:
         if self.ni is not None:
             pairs.update(n_i=self.ni, psin_ni=self.psi_N_ni)
         return {key: arr.copy() for key, arr in pairs.items()}
+
+    def _solve_keywords(self):
+        """The ESCAPE_solve keywords of the state. They are also keywords of ESCAPE(...)."""
+        return {
+            "equil_params": self._to_escape_dict(),
+            "kprof_params": self._to_kprof_params(),
+            "Z_i": self.Z_i,
+            "Z_eff": self.Z_eff,
+            "P_tot_e": self.P_tot_e,
+            "ne_x0": self.ne_sep,
+            "quasineutral_flag": self.quasineutral,
+            "T_rat_flag": self.Ti_follows_Te,
+            "T_rat": self.T_rat,
+            "pol_norm": self.pol_norm,
+            "species": self.species,
+            "regime_flag": self.regime,
+        }
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -611,14 +628,12 @@ class ESCAPEResult:
 
     converged: True if the last iteration changed the pedestal by less than tol.
     history: an IterationRecord for each iteration, in order.
-    runtime_s: wall time of the run [s].
     state: ESCAPE's state object at the end of the run, if requested. It holds
         Julia objects, so to_dict() does not include it.
     """
 
     converged: bool
     history: tuple
-    runtime_s: float
     state: object = None
 
     def __post_init__(self):
@@ -637,7 +652,6 @@ class ESCAPEResult:
         return {
             "converged": self.converged,
             "n_iter": self.n_iter,
-            "runtime_s": self.runtime_s,
             "history": [record.to_dict() for record in self.history],
         }
 
@@ -651,3 +665,77 @@ class ESCAPERunError(RuntimeError):
 
     def __reduce__(self):
         return type(self), (self.args[0], self.history)
+
+
+def run_escape(plasma, eped, sc=SCConfig(), *, max_iter=500, tol=1e-5, on_iteration=None,
+               keep_state=False, verbose=False):
+    """Run the ESCAPE loop (ESCAPE_solve) for one plasma, in memory.
+
+    plasma: PedestalPlasmaState.
+    eped: EPEDModel from load_eped_model. Load it once and give it to each run.
+    sc: SCConfig. Its verbose field controls the solver output. With
+        model='3D' and implementation='firedrake', sc.verbose=True also makes
+        ESCAPE save one PNG per iteration into the working directory.
+    max_iter: maximum number of ESCAPE iterations.
+    tol: the loop stops when loop_tol (see IterationRecord) is less than tol.
+    on_iteration: None, or a callable that gets the IterationRecord of each
+        iteration, when the iteration is complete.
+    keep_state: if True, the result keeps ESCAPE's state object.
+    verbose: ESCAPE's own verbose flag (the setup of the state).
+
+    No iteration file is written. ESCAPE_solve prints its progress to stdout.
+
+    Returns an ESCAPEResult. converged is True if the run stopped on tol
+    before max_iter.
+
+    Raises TypeError, ValueError or ImportError on arguments that can't run,
+    before ESCAPE starts. Raises ESCAPERunError, with the records made so far,
+    if an exception occurs during the run, also in on_iteration.
+    """
+    if not isinstance(eped, EPEDModel):
+        raise TypeError(f"eped must be an EPEDModel (see load_eped_model), got {type(eped).__name__}")
+    if eped.config.pres_gfile and plasma.pressure is None:
+        raise ValueError("EPEDConfig.pres_gfile=True needs PedestalPlasmaState.pressure")
+    if max_iter < 1:
+        raise ValueError(f"max_iter must be at least 1, got {max_iter}")
+
+    import matplotlib.pyplot as plt
+    from escape.ESCAPE.ESCAPE_solve import ESCAPE_solve
+    from escape.saarelma_connor import solver_3d
+
+    sc._check_firedrake(solver_3d._FIREDRAKE_AVAILABLE, solver_3d._FIREDRAKE_IMPORT_ERR)
+
+    history = []
+
+    def collect(iteration, sol):
+        record = IterationRecord._from_sol(iteration, sol)
+        history.append(record)
+        if on_iteration is not None:
+            on_iteration(record)
+
+    try:
+        # TODO: when ESCAPE has a plot keyword in solve_coupled_nondim (U17), set it in
+        # sc_params for 3D Firedrake only, so that sc.verbose=True saves no PNG.
+        # Then remove the PNG note from the docstring (TASK.md, Step 10.1).
+        with plt.ioff():
+            state = ESCAPE_solve(
+                sc_params=sc.to_params(),
+                epednn_params={"epednn_model": eped.config.name, "pres_gfile": eped.config.pres_gfile},
+                **sc._solve_keywords(),
+                **plasma._solve_keywords(),
+                ESCAPE_iter_max=max_iter,
+                ESCAPE_tol_max=tol,
+                out_dir=None,
+                verbose=verbose,
+                epednn_model=eped.model,
+                on_iteration=collect,
+            )
+    except Exception as err:
+        raise ESCAPERunError(f"ESCAPE run failed after {len(history)} iteration records: {err!r}",
+                             history) from err
+
+    return ESCAPEResult(
+        converged=len(history) > 1 and history[-1].loop_tol < tol,
+        history=history,
+        state=state if keep_state else None,
+    )
