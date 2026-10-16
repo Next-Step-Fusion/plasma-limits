@@ -272,6 +272,9 @@ class FreeParams:
 
 
 _SOLVE_KEYWORD_FIELDS = ("tanh_center_psiN", "psiN_pwg")
+_MODELS = ("1D", "3D")
+_IMPLEMENTATIONS = ("scipy", "firedrake")
+_INITIAL_GUESSES = ("tanh", "tanh_linear")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -302,6 +305,11 @@ class SCConfig:
         psiN_pwg: pedestal top (1 - pedestal width) [psi_N], for 'tanh_linear'.
     solver_kwargs: more solver keywords (for example dne_method, ne_inner_bc),
         added to the sc_params as they are. The config keeps a read-only copy.
+        A key must not be a field name, 'tanh_center' or 'x_pwg': set these
+        through the fields.
+
+    The constructor raises ValueError on settings that make ESCAPE crash
+    after the setup of the run. Numbers are not checked.
     """
 
     psi_N_inner_boundary: float | None = 0.85
@@ -349,6 +357,46 @@ class SCConfig:
     def __post_init__(self):
         object.__setattr__(self, "solver_kwargs",
                            types.MappingProxyType(copy.deepcopy(dict(self.solver_kwargs))))
+        self._validate()
+
+    def _validate(self):
+        if self.model not in _MODELS:
+            raise ValueError(f"model must be one of {_MODELS}, got {self.model!r}")
+        if self.implementation not in _IMPLEMENTATIONS:
+            raise ValueError(f"implementation must be one of {_IMPLEMENTATIONS}, got {self.implementation!r}")
+
+        if self.psi_N_inner_boundary is None:
+            if self.model == "3D":
+                raise ValueError("model='3D' needs psi_N_inner_boundary (solve_coupled_nondim)")
+            if self.nFC_threshold is None or self.nCX_threshold is None:
+                raise ValueError("psi_N_inner_boundary=None needs nFC_threshold and nCX_threshold "
+                                 "(init_saarelmaconnor)")
+        if self.model == "3D":
+            for name in ("nFC_ic", "nCX_ic"):
+                if getattr(self, name) == "state":
+                    raise ValueError(
+                        f"{name}='state' needs neutral profiles from an earlier solve, which iteration 0 "
+                        "does not have (bc_ig_helpers._state_on_desc)")
+
+        if self.initial_guess not in _INITIAL_GUESSES:
+            raise ValueError(f"initial_guess must be one of {_INITIAL_GUESSES}, got {self.initial_guess!r}")
+        if self.initial_guess == "tanh_linear" and self.psiN_pwg is None:
+            raise ValueError("initial_guess='tanh_linear' needs psiN_pwg (build_ne_initial_guess)")
+
+        reserved = {f.name for f in dataclasses.fields(self)} | {"tanh_center", "x_pwg"}
+        clashes = sorted(reserved & set(self.solver_kwargs))
+        if clashes:
+            raise ValueError(f"solver_kwargs must not contain {clashes}: set them through the "
+                             "SCConfig fields (tanh_center and x_pwg through tanh_center_psiN and psiN_pwg)")
+
+    def _check_firedrake(self, available, error):
+        """Raise ImportError, caused by error, if the run needs Firedrake and it is not available.
+
+        The 3D model needs Firedrake also with the scipy implementation.
+        """
+        if not available and (self.model == "3D" or self.implementation == "firedrake"):
+            raise ImportError(f"model={self.model!r} with implementation={self.implementation!r} "
+                              "needs Firedrake, which can't be imported") from error
 
     def to_params(self):
         """The sc_params dict for ESCAPE_solve, with free_params as a plain dict.

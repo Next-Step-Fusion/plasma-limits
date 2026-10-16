@@ -80,6 +80,60 @@ def test_frozen_and_keyword_only(cls, name):
         cls(0.5)
 
 
+@pytest.mark.parametrize("settings, message", [
+    ({"model": "3d"}, "model must be one of"),
+    ({"model": "coupled"}, "model must be one of"),
+    ({"implementation": "fem"}, "implementation must be one of"),
+    ({"model": "3D", "implementation": "firedrake", "psi_N_inner_boundary": None,
+      "nFC_threshold": 0.01, "nCX_threshold": 0.01}, "solve_coupled_nondim"),
+    ({"psi_N_inner_boundary": None}, "init_saarelmaconnor"),
+    ({"psi_N_inner_boundary": None, "nFC_threshold": 0.01}, "init_saarelmaconnor"),
+    ({"psi_N_inner_boundary": None, "nCX_threshold": 0.01}, "init_saarelmaconnor"),
+    ({"model": "3D", "nFC_ic": "state"}, "nFC_ic='state'"),
+    ({"model": "3D", "nCX_ic": "state"}, "nCX_ic='state'"),
+    ({"initial_guess": "state"}, "initial_guess must be one of"),
+    ({"initial_guess": "tanh_linear"}, "build_ne_initial_guess"),
+    ({"solver_kwargs": {"x_res": 80}}, r"\['x_res'\]"),
+    ({"solver_kwargs": {"initial_guess": "tanh"}}, r"\['initial_guess'\]"),
+    ({"solver_kwargs": {"free_params": {}}}, r"\['free_params'\]"),
+    ({"solver_kwargs": {"tanh_center": -0.01, "x_pwg": -0.02}}, r"\['tanh_center', 'x_pwg'\]"),
+])
+def test_invalid_settings_rejected(settings, message):
+    with pytest.raises(ValueError, match=message):
+        SCConfig(**settings)
+
+
+@pytest.mark.parametrize("settings", [
+    {},
+    {"model": "3D", "implementation": "firedrake"},
+    {"model": "3D", "implementation": "scipy"},
+    {"psi_N_inner_boundary": None, "nFC_threshold": 0.01, "nCX_threshold": 0.01},
+    {"nFC_ic": "state", "nCX_ic": "state"},
+    {"initial_guess": "tanh_linear", "psiN_pwg": 0.9, "tanh_center_psiN": 0.95},
+    {"solver_kwargs": {"dne_method": "state", "ne_inner_bc": "neumann"}},
+])
+def test_valid_settings_accepted(settings):
+    SCConfig(**settings)
+
+
+@pytest.mark.parametrize("settings", [
+    {"model": "3D", "implementation": "firedrake"},
+    {"model": "3D", "implementation": "scipy"},
+    {"model": "1D", "implementation": "firedrake"},
+])
+def test_firedrake_needed(settings):
+    config = SCConfig(**settings)
+    error = ModuleNotFoundError("No module named 'firedrake'")
+    with pytest.raises(ImportError, match="needs Firedrake") as info:
+        config._check_firedrake(False, error)
+    assert info.value.__cause__ is error
+    config._check_firedrake(True, None)
+
+
+def test_firedrake_not_needed_for_1d_scipy():
+    SCConfig()._check_firedrake(False, ModuleNotFoundError("No module named 'firedrake'"))
+
+
 def test_replace_for_scans():
     config = SCConfig()
     changed = dataclasses.replace(config, free_params=dataclasses.replace(config.free_params, C_KBM=0.5))
