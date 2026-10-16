@@ -33,7 +33,8 @@ from pathlib import Path
 
 import numpy as np
 
-__all__ = ["PedestalPlasmaState", "FreeParams", "SCConfig", "EPEDConfig", "EPEDModel", "load_eped_model"]
+__all__ = ["PedestalPlasmaState", "FreeParams", "SCConfig", "EPEDConfig", "EPEDModel", "load_eped_model",
+           "IterationRecord", "ESCAPEResult", "ESCAPERunError"]
 
 
 def _escape_root():
@@ -484,3 +485,169 @@ def _warm_up_eped1(model):
     """
     center = np.array(model.xbounds, dtype=np.float64).mean(axis=1)
     model(*(float(x) for x in center), only_powerlaw=False, warn_nn_train_bounds=True)
+
+
+_PLAIN_SCALARS = (np.generic, bool, int, float, complex, str, type(None))
+
+
+def _is_plain(obj):
+    if isinstance(obj, (dict, list, tuple)):
+        return True
+    if isinstance(obj, np.ndarray):
+        return obj.dtype != object
+    return isinstance(obj, _PLAIN_SCALARS)
+
+
+def _plain(obj):
+    """A deep copy of obj that keeps only values that load with numpy alone.
+
+    Dicts, lists and tuples are kept, and their other values are dropped.
+    """
+    if isinstance(obj, dict):
+        return {key: _plain(value) for key, value in obj.items() if _is_plain(value)}
+    if isinstance(obj, list):
+        return [_plain(value) for value in obj if _is_plain(value)]
+    if isinstance(obj, tuple):
+        return tuple(_plain(value) for value in obj if _is_plain(value))
+    if isinstance(obj, np.ndarray):
+        return obj.copy()
+    return obj
+
+
+def _read_only_copy(value):
+    arr = np.array(value)
+    arr.flags.writeable = False
+    return arr
+
+
+# IterationRecord field -> key of the dict that ESCAPE_solve gives to on_iteration
+_RECORD_ARRAYS = (("x", "x"), ("ne_x", "ne"), ("nFC", "nFC"), ("nCX", "nCX"),
+                  ("psi_N_pres", "psi_N"), ("T_e_pres", "T_e_pres"),
+                  ("psi_N_ne", "psi_ne_eval"), ("ne", "n_e"),
+                  ("psi_N_Te", "psi_Te_eval"), ("Te", "T_e"))
+_RECORD_VALUES = (("Te_ped_eV", "Te_ped_eV"), ("ne_ped", "ne_ped_val"), ("psi_ped", "psi_ped"),
+                  ("pedestal_height", "pedestal_height"), ("pedestal_width", "pedestal_width"),
+                  ("model", "model"), ("implementation", "implementation"))
+
+
+@dataclass(frozen=True, eq=False, kw_only=True)
+class IterationRecord:
+    """The result of one ESCAPE iteration. All arrays are read-only copies.
+
+    iteration: index of the ESCAPE iteration, from 0.
+    Saarelma-Connor solution, on the x grid [m, 0 at the separatrix, negative inside]:
+        x, ne_x: electron density [m^-3].
+        nFC, nCX: Franck-Condon and charge-exchange neutral densities [m^-3].
+    psi_N_pres, T_e_pres: the Te [eV] that the Saarelma-Connor solve used.
+    Full profiles after the iteration, with the names and units of PedestalPlasmaState:
+        psi_N_ne, ne: electron density [m^-3].
+        psi_N_Te, Te: electron temperature [keV], with the new EPED pedestal.
+    Pedestal:
+        Te_ped_eV: Te at the pedestal top [eV].
+        ne_ped: ne at the pedestal top [m^-3].
+        psi_ped: pedestal top [psi_N].
+        pedestal_height: EPED pedestal pressure [MPa].
+        pedestal_width: EPED pedestal width [psi_N].
+        betan: normalized beta that EPED got.
+    loop_tol: relative change of the pedestal height plus that of the width,
+        from the previous iteration. None in iteration 0.
+    params: the sc_params of the solve.
+    diagnostics: the solver diagnostics, with only values that load with numpy alone.
+    model, implementation: the Saarelma-Connor model and implementation used.
+    """
+
+    iteration: int
+
+    x: np.ndarray
+    ne_x: np.ndarray
+    nFC: np.ndarray
+    nCX: np.ndarray
+    psi_N_pres: np.ndarray
+    T_e_pres: np.ndarray
+
+    psi_N_ne: np.ndarray
+    ne: np.ndarray
+    psi_N_Te: np.ndarray
+    Te: np.ndarray
+
+    Te_ped_eV: float
+    ne_ped: float
+    psi_ped: float
+    pedestal_height: float
+    pedestal_width: float
+    betan: float
+
+    loop_tol: float | None
+    params: dict
+    diagnostics: dict
+    model: str
+    implementation: str
+
+    @classmethod
+    def _from_sol(cls, iteration, sol):
+        """The record of the dict that ESCAPE_solve gives to on_iteration.
+
+        sol shares its arrays and SOLVE_KW with the running solve, so the
+        record keeps copies. Iteration 0 has no loop_tol key.
+        """
+        return cls(
+            iteration=iteration,
+            **{name: _read_only_copy(sol[key]) for name, key in _RECORD_ARRAYS},
+            **{name: sol[key] for name, key in _RECORD_VALUES},
+            betan=float(np.asarray(sol["betan"]).item()),
+            loop_tol=sol.get("loop_tol"),
+            params=copy.deepcopy(sol["SOLVE_KW"]),
+            diagnostics=_plain(sol["diagnostics"]),
+        )
+
+    def to_dict(self):
+        """The fields as a dict of deep copies."""
+        return dataclasses.asdict(self)
+
+
+@dataclass(frozen=True, eq=False, kw_only=True)
+class ESCAPEResult:
+    """The result of one ESCAPE run.
+
+    converged: True if the last iteration changed the pedestal by less than tol.
+    history: an IterationRecord for each iteration, in order.
+    runtime_s: wall time of the run [s].
+    state: ESCAPE's state object at the end of the run, if requested. It holds
+        Julia objects, so to_dict() does not include it.
+    """
+
+    converged: bool
+    history: tuple
+    runtime_s: float
+    state: object = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "history", tuple(self.history))
+
+    @property
+    def n_iter(self):
+        return len(self.history)
+
+    @property
+    def final(self):
+        return self.history[-1]
+
+    def to_dict(self):
+        """The result without state, as values that load with numpy alone."""
+        return {
+            "converged": self.converged,
+            "n_iter": self.n_iter,
+            "runtime_s": self.runtime_s,
+            "history": [record.to_dict() for record in self.history],
+        }
+
+
+class ESCAPERunError(RuntimeError):
+    """An ESCAPE run failed. history holds the IterationRecords made before the failure."""
+
+    def __init__(self, message, history=()):
+        super().__init__(message)
+        self.history = tuple(history)
+
+    def __reduce__(self):
+        return type(self), (self.args[0], self.history)
