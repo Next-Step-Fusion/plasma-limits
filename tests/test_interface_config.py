@@ -1,11 +1,12 @@
-"""FreeParams and SCConfig: defaults, to_params() and ownership of the returned dicts."""
+"""FreeParams, SCConfig, EPEDConfig and load_eped_model."""
 import dataclasses
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from plasma_limits.pedestal_prediction.ESCAPE_interface import FreeParams, SCConfig
+from plasma_limits.pedestal_prediction.ESCAPE_interface import (EPEDConfig, EPEDModel, FreeParams, SCConfig,
+                                                              load_eped_model)
 
 DATA_DIR = Path(__file__).parent / "data"
 
@@ -72,7 +73,7 @@ def test_solver_kwargs_are_copied_and_read_only():
         config.solver_kwargs["dne_method"] = "state"
 
 
-@pytest.mark.parametrize("cls, name", [(FreeParams, "C_KBM"), (SCConfig, "model")])
+@pytest.mark.parametrize("cls, name", [(FreeParams, "C_KBM"), (SCConfig, "model"), (EPEDConfig, "name")])
 def test_frozen_and_keyword_only(cls, name):
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(cls(), name, None)
@@ -139,3 +140,110 @@ def test_replace_for_scans():
     changed = dataclasses.replace(config, free_params=dataclasses.replace(config.free_params, C_KBM=0.5))
     assert changed.to_params()["free_params"]["C_KBM"] == 0.5
     assert config.free_params.C_KBM == 0.3
+
+
+@pytest.mark.parametrize("name", ["EPED1", "EPED_SPARC"])
+def test_eped_names_accepted(name):
+    assert EPEDConfig(name=name).name == name
+
+
+def test_eped_defaults():
+    config = EPEDConfig()
+    assert (config.name, config.pres_gfile) == ("EPED1", False)
+
+
+@pytest.mark.parametrize("name, error, message", [
+    ("EPED_SCOPING", NotImplementedError, "qstar and nsfrac"),
+    ("eped1", ValueError, "must be one of"),
+    ("nope", ValueError, "must be one of"),
+])
+def test_eped_names_rejected(name, error, message):
+    with pytest.raises(error, match=message):
+        EPEDConfig(name=name)
+
+
+class FakeEPED1:
+    """Stands in for the Julia EPED1 model: has xbounds and records its calls."""
+
+    xbounds = [[0.0, 2.0], [1.0, 3.0], [2.0, 4.0], [-1.0, 1.0], [0.0, 10.0],
+               [1.0, 2.0], [1.0, 3.0], [0.0, 20.0], [1.0, 7.0], [1.0, 4.0]]
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+
+
+class FakeTensorFlowModel:
+    """Stands in for an epednn_mit model, which load_eped_model must not call."""
+
+    def __call__(self, *args, **kwargs):
+        raise AssertionError("only EPED1 is warmed up")
+
+
+@pytest.fixture
+def fake_loader(monkeypatch):
+    """Replace ESCAPE's load_epednn_model; return the list of (name, model) it gave out."""
+    loaded = []
+
+    def fake_load(name):
+        model = FakeEPED1() if name == "EPED1" else FakeTensorFlowModel()
+        loaded.append((name, model))
+        return model
+
+    monkeypatch.setattr("escape.epednn.epednn_call.load_epednn_model", fake_load)
+    return loaded
+
+
+def test_load_returns_model_with_its_config(fake_loader):
+    config = EPEDConfig(pres_gfile=True)
+    eped = load_eped_model(config)
+    assert isinstance(eped, EPEDModel)
+    assert eped.config is config
+    assert fake_loader == [("EPED1", eped.model)]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        eped.model = None
+
+
+def test_load_default_is_eped1(fake_loader):
+    assert load_eped_model().config == EPEDConfig()
+    assert [name for name, _ in fake_loader] == ["EPED1"]
+
+
+def test_eped1_warm_up_call(fake_loader):
+    model = load_eped_model(EPEDConfig()).model
+    centers = [1.0, 2.0, 3.0, 0.0, 5.0, 1.5, 2.0, 10.0, 4.0, 2.5]
+    assert model.calls == [(tuple(centers), {"only_powerlaw": False, "warn_nn_train_bounds": True})]
+    assert all(type(x) is float for x in model.calls[0][0])
+
+
+def test_eped_sparc_not_warmed_up(fake_loader):
+    eped = load_eped_model(EPEDConfig(name="EPED_SPARC"))
+    assert isinstance(eped.model, FakeTensorFlowModel)
+
+
+def test_each_call_loads_again(fake_loader):
+    first, second = load_eped_model(), load_eped_model()
+    assert first.model is not second.model
+    assert len(fake_loader) == 2
+
+
+def test_load_needs_config(fake_loader):
+    with pytest.raises(TypeError, match="EPEDConfig"):
+        load_eped_model("EPED1")
+    assert fake_loader == []
+
+
+@pytest.mark.slow
+def test_real_eped1_compiled_at_load():
+    """Real EPED1 through juliacall. The first run of a session starts Julia (seconds to minutes)."""
+    import time
+
+    model = load_eped_model(EPEDConfig()).model
+    center = np.array(model.xbounds, dtype=np.float64).mean(axis=1)
+    start = time.perf_counter()
+    solution = model(*(float(x) for x in center), only_powerlaw=False, warn_nn_train_bounds=True)
+    assert time.perf_counter() - start < 0.5, "the call compiled again: the warm-up signature differs"
+    assert np.isfinite(float(solution.pressure.GH.H))
+    assert np.isfinite(float(solution.width.GH.H))

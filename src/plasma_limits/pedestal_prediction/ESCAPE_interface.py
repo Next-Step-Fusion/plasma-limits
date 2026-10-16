@@ -10,7 +10,8 @@ Public API (added step by step):
     PedestalPlasmaState  -- every physical input (equilibrium, profiles, species)
     FreeParams, SCConfig -- Saarelma-Connor free parameters and solver settings
     EPEDConfig           -- which EPED model to use
-    load_eped_model      -- load an EPED model once per process
+    EPEDModel            -- a loaded EPED model with its EPEDConfig
+    load_eped_model      -- load an EPED model, once before the runs
     run_escape           -- run the ESCAPE loop, returning an ESCAPEResult
     IterationRecord, ESCAPEResult, ESCAPERunError
 
@@ -32,7 +33,7 @@ from pathlib import Path
 
 import numpy as np
 
-__all__ = ["PedestalPlasmaState", "FreeParams", "SCConfig"]
+__all__ = ["PedestalPlasmaState", "FreeParams", "SCConfig", "EPEDConfig", "EPEDModel", "load_eped_model"]
 
 
 def _escape_root():
@@ -414,3 +415,72 @@ class SCConfig:
     def _solve_keywords(self):
         """The ESCAPE_solve keywords that set the initial guess in psi_N."""
         return {name: getattr(self, name) for name in _SOLVE_KEYWORD_FIELDS}
+
+
+_EPED_MODELS = ("EPED1", "EPED_SPARC")
+
+
+@dataclass(frozen=True, kw_only=True)
+class EPEDConfig:
+    """EPED settings of one ESCAPE run. All fields are keyword-only.
+
+    name: 'EPED1' (EPEDNN.jl through juliacall) or 'EPED_SPARC' (epednn_mit,
+        TensorFlow). EPED_SPARC needs the epednn_mit sources in the ESCAPE
+        checkout (dependencies/epednn_mit/src).
+    pres_gfile: if True, EPED uses PedestalPlasmaState.pressure. If False,
+        it uses the pressure from the kinetic profiles.
+
+    The constructor raises NotImplementedError for 'EPED_SCOPING' and
+    ValueError for other names.
+    """
+
+    name: str = "EPED1"
+    pres_gfile: bool = False
+
+    def __post_init__(self):
+        if self.name == "EPED_SCOPING":
+            raise NotImplementedError(
+                "EPED_SCOPING can't run: epednn_class.feed_epednn does not calculate its inputs qstar and nsfrac")
+        if self.name not in _EPED_MODELS:
+            raise ValueError(f"EPED model name must be one of {_EPED_MODELS}, got {self.name!r}")
+
+
+@dataclass(frozen=True, eq=False, kw_only=True)
+class EPEDModel:
+    """A loaded EPED model and the EPEDConfig it was loaded with.
+
+    ESCAPE selects how it calls the model from the model name, so the two
+    are kept together. Make it with load_eped_model.
+    """
+
+    config: EPEDConfig
+    model: object
+
+
+def load_eped_model(config=EPEDConfig()):
+    """Load the EPED model of config and return it as an EPEDModel.
+
+    Load the model once, before a scan or a time loop, and give the same
+    EPEDModel to each run: each call of this function loads the model again.
+    For EPED1, the model is called once at the center of its training range,
+    so that Julia compiles the call here and not in the first run.
+    Julia is not safe across fork, so parallel runs must start their
+    processes with 'spawn'.
+    """
+    if not isinstance(config, EPEDConfig):
+        raise TypeError(f"config must be an EPEDConfig, got {type(config).__name__}")
+    from escape.epednn.epednn_call import load_epednn_model
+    model = load_epednn_model(config.name)
+    if config.name == "EPED1":
+        _warm_up_eped1(model)
+    return EPEDModel(config=config, model=model)
+
+
+def _warm_up_eped1(model):
+    """Call EPED1 with the same signature as epednn_class.feed_epednn.
+
+    The inputs are the centers of the training bounds, so EPEDNN prints no
+    extrapolation warning.
+    """
+    center = np.array(model.xbounds, dtype=np.float64).mean(axis=1)
+    model(*(float(x) for x in center), only_powerlaw=False, warn_nn_train_bounds=True)
