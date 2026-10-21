@@ -228,6 +228,28 @@ wheels = [
 ]
 
 [[package]]
+name = "fortranformat"
+version = "2.0.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/00/26767cab9ec32594d24e7fd54172184be495c0ce205943ed2d06c0694c5c/fortranformat-2.0.3.tar.gz", hash = "sha256:1e765c01a66208d54d75cae140ba9f1adda0548aaad8538cba8da39e69ac178c", size = 18657, upload-time = "2025-04-08T21:49:51.134Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/39/41/fa1f52754036081ff6b53c972a37ab16cf9f972d6170de1a8442382ab108/fortranformat-2.0.3-py3-none-any.whl", hash = "sha256:88c8e7a3eac16c23420e8a1c4b21ddc7108f48e8dcbd2e0da6c8ecc48b051bb2", size = 23291, upload-time = "2025-04-08T21:49:49.993Z" },
+]
+
+[[package]]
+name = "freeqdsk"
+version = "0.5.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fortranformat" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/51/cd/a98eea70d69fbee460278d54ca94370ad659f4245e96f1383471749c7e57/freeqdsk-0.5.2.tar.gz", hash = "sha256:7b40430f8368a9ac130d441d43aa50944b4165c8c44fc49b752836bd8e822b4b", size = 201827, upload-time = "2025-02-20T14:37:36.15Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/c3/27c40f49900c200ff1655af3070cd5f9e796e39e85e3d7edb452a9874f30/freeqdsk-0.5.2-py3-none-any.whl", hash = "sha256:36f9b614b03b7af930b5239e1f9e0ea2da4a8b16de8284b8e8c96a8160a08895", size = 25751, upload-time = "2025-02-20T14:37:34.535Z" },
+]
+
+[[package]]
 name = "h5py"
 version = "3.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -753,6 +775,7 @@ name = "plasma-limits"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "freeqdsk" },
     { name = "h5py" },
     { name = "juliacall" },
     { name = "juliapkg" },
@@ -774,6 +797,7 @@ escape = [
 
 [package.metadata]
 requires-dist = [
+    { name = "freeqdsk", specifier = ">=0.5.2" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "juliacall", specifier = ">=0.9.36" },
     { name = "juliapkg", specifier = ">=0.1.27" },

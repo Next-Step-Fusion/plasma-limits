@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "freeqdsk>=0.5.2",
     "h5py>=3.16.0",
     "juliacall>=0.9.36",
     "juliapkg>=0.1.27",
