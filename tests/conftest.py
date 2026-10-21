@@ -1,10 +1,13 @@
-"""Shared fixtures: reference outputs of an ESCAPE ARC run (3D, Firedrake, EPED1).
+"""Shared fixtures and helpers.
 
-The files in tests/data/ were written by ESCAPE's ARC driver
-and load with numpy alone. ne_and_Te_iter_k.npy holds iteration k of the ESCAPE
-loop. arc_reference.npy holds the plain-data part of the driver's out_dict.npy
-(see extract_arc_reference.py).
+The files in tests/data/ load with numpy alone:
+- arc_reference.npy: the inputs and the ESCAPE state of a reference ARC run
+  (3D Firedrake, EPED1), without the Julia objects.
+- arc_1d_baseline.npy, arc_3d_baseline.npy: the iteration dicts of the ARC
+  runs of test_arc_integration.py.
 """
+import importlib.util
+import math
 from pathlib import Path
 
 import numpy as np
@@ -12,23 +15,105 @@ import pytest
 
 from plasma_limits.pedestal_prediction.ESCAPE_interface import PedestalPlasmaState
 
-REF_DIR = Path(__file__).parent / "data"
-N_REF_ITERS = 5
+TESTS_DIR = Path(__file__).parent
+REF_DIR = TESTS_DIR / "data"
+
+# IterationRecord field -> key of the dict that ESCAPE_solve gives to on_iteration
+RECORD_ARRAY_KEYS = {"x": "x", "ne_x": "ne", "nFC": "nFC", "nCX": "nCX", "psi_N_pres": "psi_N",
+                     "T_e_pres": "T_e_pres", "psi_N_ne": "psi_ne_eval", "ne": "n_e",
+                     "psi_N_Te": "psi_Te_eval", "Te": "T_e"}
+RECORD_VALUE_KEYS = {"Te_ped_eV": "Te_ped_eV", "ne_ped": "ne_ped_val", "psi_ped": "psi_ped",
+                     "pedestal_height": "pedestal_height", "pedestal_width": "pedestal_width",
+                     "model": "model", "implementation": "implementation", "params": "SOLVE_KW"}
 
 
 def _load_npy_dict(path):
     return np.load(path, allow_pickle=True).item()
 
 
+def _load_tests_module(name):
+    """A module of tests/ loaded by file path (tests/ is not a package)."""
+    spec = importlib.util.spec_from_file_location(name, TESTS_DIR / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _close(a, b, rtol, atol):
+    if rtol == 0:
+        return a == b or (a != a and b != b)
+    return math.isclose(a, b, rel_tol=rtol, abs_tol=atol) or (a != a and b != b)
+
+
+def _diff(a, b, path="result", rtol=0.0):
+    """Paths where a and b differ.
+
+    Keys, lengths, types, dtypes and shapes must match exactly. With rtol=0 every
+    value must match exactly. With rtol>0, floats may differ by rtol relative,
+    plus an absolute rtol * max|b| per array so that values near zero can pass.
+    """
+    if isinstance(a, dict) and isinstance(b, dict):
+        if a.keys() != b.keys():
+            return [f"{path}: keys {sorted(a.keys() ^ b.keys())}"]
+        return [d for k in a for d in _diff(a[k], b[k], f"{path}[{k!r}]", rtol)]
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        if len(a) != len(b):
+            return [f"{path}: length {len(a)} != {len(b)}"]
+        return [d for i, (x, y) in enumerate(zip(a, b)) for d in _diff(x, y, f"{path}[{i}]", rtol)]
+    if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
+        if not (isinstance(a, np.ndarray) and isinstance(b, np.ndarray)
+                and a.dtype == b.dtype and a.shape == b.shape):
+            return [path]
+        if rtol == 0 or a.dtype.kind not in "fc" or b.size == 0:
+            same = np.array_equal(a, b, equal_nan=a.dtype.kind in "fc")
+        else:
+            atol = rtol * float(np.nanmax(np.abs(b), initial=0.0))
+            same = np.allclose(a, b, rtol=rtol, atol=atol, equal_nan=True)
+        return [] if same else [path]
+    if type(a) is not type(b):
+        return [f"{path}: type {type(a).__name__} != {type(b).__name__}"]
+    if isinstance(a, (float, np.floating)):
+        return [] if _close(a, b, rtol, rtol * abs(b)) else [path]
+    return [] if a == b or (a != a and b != b) else [path]
+
+
 @pytest.fixture(scope="session")
-def ref_iters():
-    """The five per-iteration dicts saved by ESCAPE_solve, in order."""
-    return [_load_npy_dict(REF_DIR / f"ne_and_Te_iter_{k}.npy") for k in range(N_REF_ITERS)]
+def diff():
+    """_diff(a, b, path="result", rtol=0.0): the paths where a and b differ."""
+    return _diff
+
+
+@pytest.fixture(scope="session")
+def driver():
+    """tests/arc_integration_driver.py (imports ESCAPE)."""
+    return _load_tests_module("arc_integration_driver")
+
+
+@pytest.fixture(scope="session")
+def arc_integration():
+    """tests/test_arc_integration.py, for its Firedrake runner."""
+    return _load_tests_module("test_arc_integration")
+
+
+@pytest.fixture(scope="session")
+def arc_1d_iterations():
+    """The five iteration dicts of arc_1d_baseline.npy (ESCAPE's file path, 1D scipy, EPED1)."""
+    return _load_npy_dict(REF_DIR / "arc_1d_baseline.npy")["iterations"]
+
+
+@pytest.fixture(scope="session")
+def record_array_keys():
+    return dict(RECORD_ARRAY_KEYS)
+
+
+@pytest.fixture(scope="session")
+def record_value_keys():
+    return dict(RECORD_VALUE_KEYS)
 
 
 @pytest.fixture(scope="session")
 def ref_arc():
-    """The ARC driver's out_dict without the Julia EPED model and NeBCs."""
+    """The reference ARC run without the Julia EPED model and NeBCs."""
     return _load_npy_dict(REF_DIR / "arc_reference.npy")
 
 

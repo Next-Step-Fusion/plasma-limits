@@ -22,7 +22,7 @@ def test_import_is_lightweight():
         import json, sys
         path_before = list(sys.path)
         import plasma_limits.pedestal_prediction.ESCAPE_interface as ei
-        heavy = ["escape", "src", "firedrake", "juliacall", "matplotlib.pyplot"]
+        heavy = ["escape", "firedrake", "juliacall", "matplotlib.pyplot"]
         print(json.dumps({
             "loaded": [m for m in heavy if m in sys.modules],
             "path_unchanged": sys.path == path_before,

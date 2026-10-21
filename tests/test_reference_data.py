@@ -7,11 +7,6 @@ from pathlib import Path
 
 import numpy as np
 
-ITER_KEYS = {
-    "x", "ne", "nFC", "nCX", "T_e", "psi_N", "psi_Te_eval", "psi_ne_eval", "n_e",
-    "Te_ped_eV", "ne_ped_val", "psi_ped", "pedestal_height", "pedestal_width",
-    "SOLVE_KW", "model", "implementation", "diagnostics",
-}
 PLAIN_SCALARS = (np.generic, bool, int, float, complex, str, type(None))
 ARC_REFERENCE = Path(__file__).parent / "data" / "arc_reference.npy"
 
@@ -25,13 +20,6 @@ def _leaves(obj, path="d"):
             yield from _leaves(value, f"{path}[{i}]")
     else:
         yield path, obj
-
-
-def test_ref_iters(ref_iters):
-    assert len(ref_iters) == 5
-    for k, it in enumerate(ref_iters):
-        assert ITER_KEYS <= it.keys(), f"iteration {k}"
-        assert ("loop_tol" in it) == (k > 0), f"iteration {k}"
 
 
 def test_ref_eq_grid(ref_eq):
@@ -54,7 +42,7 @@ def test_arc_reference_loads_with_numpy_only():
         import numpy as np
         d = np.load({str(ARC_REFERENCE)!r}, allow_pickle=True).item()
         print(json.dumps(dict(
-            loaded=[m for m in ("juliacall", "src") if m in sys.modules],
+            loaded=[m for m in ("juliacall", "escape") if m in sys.modules],
             has_state="state" in d,
         )))
     """)

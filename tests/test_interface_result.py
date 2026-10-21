@@ -1,13 +1,11 @@
 """IterationRecord, ESCAPEResult and ESCAPERunError, on the iteration dicts of arc_1d_baseline.npy."""
 import copy
 import dataclasses
-import importlib.util
 import json
 import pickle
 import subprocess
 import sys
 import textwrap
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -15,39 +13,12 @@ import pytest
 from plasma_limits.pedestal_prediction.ESCAPE_interface import (ESCAPEResult, ESCAPERunError, IterationRecord,
                                                               _plain)
 
-TESTS_DIR = Path(__file__).parent
-
-# Appendix A of TASK.md: IterationRecord field -> key of the on_iteration dict
-ARRAY_KEYS = {"x": "x", "ne_x": "ne", "nFC": "nFC", "nCX": "nCX", "psi_N_pres": "psi_N",
-              "T_e_pres": "T_e_pres", "psi_N_ne": "psi_ne_eval", "ne": "n_e",
-              "psi_N_Te": "psi_Te_eval", "Te": "T_e"}
-VALUE_KEYS = {"Te_ped_eV": "Te_ped_eV", "ne_ped": "ne_ped_val", "psi_ped": "psi_ped",
-              "pedestal_height": "pedestal_height", "pedestal_width": "pedestal_width",
-              "model": "model", "implementation": "implementation", "params": "SOLVE_KW"}
-
-
-def _load_tests_module(name):
-    spec = importlib.util.spec_from_file_location(name, TESTS_DIR / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-@pytest.fixture(scope="module")
-def diff():
-    return _load_tests_module("test_arc_integration")._diff
-
-
-@pytest.fixture(scope="module")
-def baseline_iterations():
-    return np.load(TESTS_DIR / "data" / "arc_1d_baseline.npy", allow_pickle=True).item()["iterations"]
-
 
 @pytest.fixture
-def sols(baseline_iterations):
+def sols(arc_1d_iterations):
     """The baseline iteration dicts with the two keys that only on_iteration gets."""
     return [{**copy.deepcopy(it), "betan": np.array([1.5 + k]), "T_e_pres": np.full_like(it["psi_N"], 100.0 + k)}
-            for k, it in enumerate(baseline_iterations)]
+            for k, it in enumerate(arc_1d_iterations)]
 
 
 @pytest.fixture
@@ -55,15 +26,15 @@ def records(sols):
     return [IterationRecord._from_sol(k, sol) for k, sol in enumerate(sols)]
 
 
-def test_record_fields_are_the_mapping():
+def test_record_fields_are_the_mapping(record_array_keys, record_value_keys):
     names = {f.name for f in dataclasses.fields(IterationRecord)}
-    assert names == {"iteration", "betan", "loop_tol", "diagnostics"} | ARRAY_KEYS.keys() | VALUE_KEYS.keys()
+    assert names == {"iteration", "betan", "loop_tol", "diagnostics"} | record_array_keys.keys() | record_value_keys.keys()
 
 
-def test_record_from_sol_maps_every_key(records, sols, diff):
+def test_record_from_sol_maps_every_key(records, sols, diff, record_array_keys, record_value_keys):
     for k, (record, sol) in enumerate(zip(records, sols)):
         assert record.iteration == k
-        for name, key in {**ARRAY_KEYS, **VALUE_KEYS}.items():
+        for name, key in {**record_array_keys, **record_value_keys}.items():
             assert diff(getattr(record, name), sol[key]) == [], name
         assert diff(record.diagnostics, sol["diagnostics"]) == []
         assert type(record.betan) is float and record.betan == 1.5 + k
@@ -72,21 +43,21 @@ def test_record_from_sol_maps_every_key(records, sols, diff):
         assert diff(record.loop_tol, sol["loop_tol"]) == []
 
 
-def test_record_keeps_read_only_copies(records, sols):
+def test_record_keeps_read_only_copies(records, sols, record_array_keys):
     for record, sol in zip(records, sols):
-        for name, key in ARRAY_KEYS.items():
+        for name, key in record_array_keys.items():
             arr = getattr(record, name)
             assert not arr.flags.writeable, name
             assert not np.shares_memory(arr, sol[key]), name
 
 
-def test_record_does_not_follow_later_changes_of_sol(records, sols, baseline_iterations, diff):
+def test_record_does_not_follow_later_changes_of_sol(records, sols, arc_1d_iterations, diff):
     sol = sols[1]
     sol["SOLVE_KW"]["initial_guess"] = "changed"
     sol["SOLVE_KW"]["free_params"]["C_KBM"] = -1.0
     sol["diagnostics"]["picard_info"]["history"][0]["alpha_bar"] = -1.0
     sol["diagnostics"]["hat_x_sol"][0] = -1.0
-    expected = baseline_iterations[1]
+    expected = arc_1d_iterations[1]
     assert diff(records[1].params, expected["SOLVE_KW"]) == []
     assert diff(records[1].diagnostics, expected["diagnostics"]) == []
 
@@ -122,8 +93,8 @@ def test_plain_drops_live_objects():
                            "none": None}
 
 
-def test_plain_keeps_baseline_diagnostics_as_copies(baseline_iterations, diff):
-    for it in baseline_iterations:
+def test_plain_keeps_baseline_diagnostics_as_copies(arc_1d_iterations, diff):
+    for it in arc_1d_iterations:
         plain = _plain(it["diagnostics"])
         assert diff(plain, it["diagnostics"]) == []
         assert not np.shares_memory(plain["hat_x_sol"], it["diagnostics"]["hat_x_sol"])

@@ -19,7 +19,6 @@ compiles with the bare name ``mpicc`` from PETSc's configuration, so the run
 puts a folder with the right ``mpicc`` first in PATH.
 """
 import importlib.util
-import math
 import os
 import subprocess
 import sys
@@ -47,44 +46,6 @@ def _submodule_status():
     out = subprocess.run(["git", "-C", str(ESCAPE_ROOT), "status", "--porcelain"],
                          capture_output=True, text=True, check=True).stdout
     return sorted(line for line in out.splitlines() if "__pycache__" not in line)
-
-
-def _close(a, b, rtol, atol):
-    if rtol == 0:
-        return a == b or (a != a and b != b)
-    return math.isclose(a, b, rel_tol=rtol, abs_tol=atol) or (a != a and b != b)
-
-
-def _diff(a, b, path="result", rtol=0.0):
-    """Paths where a and b differ.
-
-    Keys, lengths, types, dtypes and shapes must match exactly. With rtol=0 every
-    value must match exactly. With rtol>0, floats may differ by rtol relative,
-    plus an absolute rtol * max|b| per array so that values near zero can pass.
-    """
-    if isinstance(a, dict) and isinstance(b, dict):
-        if a.keys() != b.keys():
-            return [f"{path}: keys {sorted(a.keys() ^ b.keys())}"]
-        return [d for k in a for d in _diff(a[k], b[k], f"{path}[{k!r}]", rtol)]
-    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
-        if len(a) != len(b):
-            return [f"{path}: length {len(a)} != {len(b)}"]
-        return [d for i, (x, y) in enumerate(zip(a, b)) for d in _diff(x, y, f"{path}[{i}]", rtol)]
-    if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
-        if not (isinstance(a, np.ndarray) and isinstance(b, np.ndarray)
-                and a.dtype == b.dtype and a.shape == b.shape):
-            return [path]
-        if rtol == 0 or a.dtype.kind not in "fc" or b.size == 0:
-            same = np.array_equal(a, b, equal_nan=a.dtype.kind in "fc")
-        else:
-            atol = rtol * float(np.nanmax(np.abs(b), initial=0.0))
-            same = np.allclose(a, b, rtol=rtol, atol=atol, equal_nan=True)
-        return [] if same else [path]
-    if type(a) is not type(b):
-        return [f"{path}: type {type(a).__name__} != {type(b).__name__}"]
-    if isinstance(a, (float, np.floating)):
-        return [] if _close(a, b, rtol, rtol * abs(b)) else [path]
-    return [] if a == b or (a != a and b != b) else [path]
 
 
 def _firedrake_python():
@@ -130,7 +91,7 @@ def _firedrake_runner(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("model, mode", [("1d", "file"), ("1d", "memory"), ("3d", "file")])
-def test_arc_run_matches_baseline(model, mode, tmp_path):
+def test_arc_run_matches_baseline(model, mode, tmp_path, diff):
     if model == "3d":
         python, env = _firedrake_runner(tmp_path)
         rtol = RTOL_3D
@@ -164,5 +125,5 @@ def test_arc_run_matches_baseline(model, mode, tmp_path):
         pytest.fail(f"Baseline written to {baseline_file}. Unset ESCAPE_UPDATE_BASELINE and run again.")
 
     baseline = np.load(baseline_file, allow_pickle=True).item()["iterations"]
-    differences = _diff(iterations, baseline, "iterations", rtol)
+    differences = diff(iterations, baseline, "iterations", rtol)
     assert not differences, f"ARC {model} {mode} run differs from the baseline at:\n" + "\n".join(differences[:20])

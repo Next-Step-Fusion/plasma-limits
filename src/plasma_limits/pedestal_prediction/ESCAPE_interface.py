@@ -6,7 +6,7 @@ the same model without any file I/O: the caller builds all inputs in memory,
 and results are returned in memory. The only files read from disk are the
 EPED model weights and the atomic-rate tables bundled with ESCAPE.
 
-Public API (added step by step):
+Public API:
     PedestalPlasmaState  -- every physical input (equilibrium, profiles, species)
     FreeParams, SCConfig -- Saarelma-Connor free parameters and solver settings
     EPEDConfig           -- which EPED model to use
@@ -20,8 +20,7 @@ the standard library and numpy.
 
 ESCAPE must be an editable install from an ESCAPE checkout, because it finds
 its Julia EPEDNN model relative to its own source files. ``ESCAPE_ROOT`` is
-that checkout; ESCAPE_io.py and the tests use it to find ESCAPE's example and
-data files.
+that checkout, or None if ESCAPE isn't installed.
 """
 import copy
 import dataclasses
@@ -214,7 +213,7 @@ class PedestalPlasmaState:
         if self.species not in _SPECIES:
             raise ValueError(f"species must be one of {_SPECIES}, got {self.species!r}")
 
-    def _to_escape_dict(self):
+    def _to_equil_params(self):
         """The equilibrium as ESCAPE's equil_params: the read_eqdsk keys that ESCAPE reads.
 
         ESCAPE keeps references to the arrays, so each call returns fresh, writable copies.
@@ -256,7 +255,7 @@ class PedestalPlasmaState:
     def _solve_keywords(self):
         """The ESCAPE_solve keywords of the state. They are also keywords of ESCAPE(...)."""
         return {
-            "equil_params": self._to_escape_dict(),
+            "equil_params": self._to_equil_params(),
             "kprof_params": self._to_kprof_params(),
             "Z_i": self.Z_i,
             "Z_eff": self.Z_eff,
@@ -538,13 +537,13 @@ def _read_only_copy(value):
 
 
 # IterationRecord field -> key of the dict that ESCAPE_solve gives to on_iteration
-_RECORD_ARRAYS = (("x", "x"), ("ne_x", "ne"), ("nFC", "nFC"), ("nCX", "nCX"),
-                  ("psi_N_pres", "psi_N"), ("T_e_pres", "T_e_pres"),
-                  ("psi_N_ne", "psi_ne_eval"), ("ne", "n_e"),
-                  ("psi_N_Te", "psi_Te_eval"), ("Te", "T_e"))
-_RECORD_VALUES = (("Te_ped_eV", "Te_ped_eV"), ("ne_ped", "ne_ped_val"), ("psi_ped", "psi_ped"),
-                  ("pedestal_height", "pedestal_height"), ("pedestal_width", "pedestal_width"),
-                  ("model", "model"), ("implementation", "implementation"))
+_RECORD_ARRAYS = {"x": "x", "ne_x": "ne", "nFC": "nFC", "nCX": "nCX",
+                  "psi_N_pres": "psi_N", "T_e_pres": "T_e_pres",
+                  "psi_N_ne": "psi_ne_eval", "ne": "n_e",
+                  "psi_N_Te": "psi_Te_eval", "Te": "T_e"}
+_RECORD_VALUES = {"Te_ped_eV": "Te_ped_eV", "ne_ped": "ne_ped_val", "psi_ped": "psi_ped",
+                  "pedestal_height": "pedestal_height", "pedestal_width": "pedestal_width",
+                  "model": "model", "implementation": "implementation"}
 
 
 @dataclass(frozen=True, eq=False, kw_only=True)
@@ -609,8 +608,8 @@ class IterationRecord:
         """
         return cls(
             iteration=iteration,
-            **{name: _read_only_copy(sol[key]) for name, key in _RECORD_ARRAYS},
-            **{name: sol[key] for name, key in _RECORD_VALUES},
+            **{name: _read_only_copy(sol[key]) for name, key in _RECORD_ARRAYS.items()},
+            **{name: sol[key] for name, key in _RECORD_VALUES.items()},
             betan=float(np.asarray(sol["betan"]).item()),
             loop_tol=sol.get("loop_tol"),
             params=copy.deepcopy(sol["SOLVE_KW"]),
@@ -714,9 +713,6 @@ def run_escape(plasma, eped, sc=SCConfig(), *, max_iter=500, tol=1e-5, on_iterat
             on_iteration(record)
 
     try:
-        # TODO: when ESCAPE has a plot keyword in solve_coupled_nondim (U17), set it in
-        # sc_params for 3D Firedrake only, so that sc.verbose=True saves no PNG.
-        # Then remove the PNG note from the docstring (TASK.md, Step 10.1).
         with plt.ioff():
             state = ESCAPE_solve(
                 sc_params=sc.to_params(),

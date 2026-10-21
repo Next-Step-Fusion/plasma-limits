@@ -5,32 +5,12 @@ The runs use the ARC inputs of tests/arc_integration_driver.py with the real
 evaluated.
 """
 import copy
-import importlib.util
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-TESTS_DIR = Path(__file__).parent
 SOLVE_ONLY_KEYS = ("sc_params", "epednn_params", "ESCAPE_iter_max", "ESCAPE_tol_max")
 CALLBACK_ONLY_KEYS = ("betan", "T_e_pres")
-
-
-def _load_tests_module(name):
-    spec = importlib.util.spec_from_file_location(name, TESTS_DIR / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-@pytest.fixture(scope="module")
-def driver():
-    return _load_tests_module("arc_integration_driver")
-
-
-@pytest.fixture(scope="module")
-def diff():
-    return _load_tests_module("test_arc_integration")._diff
 
 
 @pytest.fixture

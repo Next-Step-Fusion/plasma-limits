@@ -5,8 +5,10 @@ ESCAPE_solve. The slow runs use the 1D scipy defaults, and their records must
 equal arc_1d_baseline.npy, which ESCAPE's own file path wrote from the same
 inputs. The integration run uses 3D Firedrake in an interpreter that has
 Firedrake, and compares with arc_3d_baseline.npy.
+
+Under coverage tracing, EPED1 gives a pedestal width that differs by 1 ULP in
+iteration 4, so the exact comparisons with the 1D baseline fail.
 """
-import importlib.util
 import pickle
 import subprocess
 from pathlib import Path
@@ -18,32 +20,14 @@ from plasma_limits.pedestal_prediction.ESCAPE_interface import (EPEDConfig, EPED
                                                               PedestalPlasmaState, SCConfig, load_eped_model,
                                                               run_escape)
 
-TESTS_DIR = Path(__file__).parent
+REF_DIR = Path(__file__).parent / "data"
 N_BASELINE_ITER = 5
 
 
-def _load_tests_module(name):
-    spec = importlib.util.spec_from_file_location(name, TESTS_DIR / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 @pytest.fixture(scope="module")
-def arc_integration():
-    return _load_tests_module("test_arc_integration")
-
-
-@pytest.fixture(scope="module")
-def diff(arc_integration):
-    return arc_integration._diff
-
-
-@pytest.fixture(scope="module")
-def sol_keys():
-    """IterationRecord field -> key of ESCAPE's iteration dict (Appendix A of TASK.md)."""
-    module = _load_tests_module("test_interface_result")
-    return {**module.ARRAY_KEYS, **module.VALUE_KEYS, "diagnostics": "diagnostics"}
+def sol_keys(record_array_keys, record_value_keys):
+    """IterationRecord field -> key of ESCAPE's iteration dict."""
+    return {**record_array_keys, **record_value_keys, "diagnostics": "diagnostics"}
 
 
 # Checks before the run. The EPED model is never called.
@@ -85,11 +69,6 @@ def eped1():
     return load_eped_model()
 
 
-@pytest.fixture(scope="module")
-def baseline_iterations():
-    return np.load(TESTS_DIR / "data" / "arc_1d_baseline.npy", allow_pickle=True).item()["iterations"]
-
-
 def _fields(record):
     """The fields of an IterationRecord, or the dict from its to_dict()."""
     return record if isinstance(record, dict) else vars(record)
@@ -104,8 +83,8 @@ def _as_sol(record, sol_keys):
     return sol
 
 
-def _assert_records_equal_baseline(history, baseline_iterations, sol_keys, diff, rtol=0.0):
-    for record, expected in zip(history, baseline_iterations):
+def _assert_records_equal_baseline(history, arc_1d_iterations, sol_keys, diff, rtol=0.0):
+    for record, expected in zip(history, arc_1d_iterations):
         fields = _fields(record)
         assert diff(_as_sol(record, sol_keys), expected, f"iteration {fields['iteration']}", rtol) == []
         assert fields["T_e_pres"].shape == fields["psi_N_pres"].shape
@@ -126,11 +105,11 @@ def full_run(arc_state, eped1, tmp_path_factory):
 
 
 @pytest.mark.slow
-def test_run_equals_file_baseline(full_run, baseline_iterations, sol_keys, diff):
+def test_run_equals_file_baseline(full_run, arc_1d_iterations, sol_keys, diff):
     result = full_run["result"]
-    assert result.n_iter == N_BASELINE_ITER == len(baseline_iterations)
+    assert result.n_iter == N_BASELINE_ITER == len(arc_1d_iterations)
     assert [record.iteration for record in result.history] == list(range(N_BASELINE_ITER))
-    _assert_records_equal_baseline(result.history, baseline_iterations, sol_keys, diff)
+    _assert_records_equal_baseline(result.history, arc_1d_iterations, sol_keys, diff)
     assert result.converged is False
     assert result.state is None
 
@@ -145,12 +124,13 @@ def test_run_callback_and_no_side_effects(full_run):
 
 
 @pytest.mark.slow
-def test_run_stops_on_tol(arc_state, eped1, baseline_iterations, sol_keys, diff, tmp_path, monkeypatch):
+def test_run_stops_on_tol(arc_state, eped1, arc_1d_iterations, sol_keys, diff, tmp_path, monkeypatch):
     """Baseline loop_tol of iteration 1 is 0.272, so tol=0.3 stops there.
 
     ESCAPE loads EPED through epednn_call.load_epednn_model, which raises here:
     the run uses the given EPEDModel and loads no model.
     """
+    from escape.ESCAPE.ESCAPE_api import ESCAPE
     from escape.epednn import epednn_call
 
     def no_load(*args, **kwargs):
@@ -158,10 +138,39 @@ def test_run_stops_on_tol(arc_state, eped1, baseline_iterations, sol_keys, diff,
 
     monkeypatch.setattr(epednn_call, "load_epednn_model", no_load)
     monkeypatch.chdir(tmp_path)
-    result = run_escape(arc_state, eped1, max_iter=N_BASELINE_ITER, tol=0.3)
+    result = run_escape(arc_state, eped1, max_iter=N_BASELINE_ITER, tol=0.3, keep_state=True)
     assert result.n_iter == 2
     assert result.converged is True
-    _assert_records_equal_baseline(result.history, baseline_iterations, sol_keys, diff)
+    _assert_records_equal_baseline(result.history, arc_1d_iterations, sol_keys, diff)
+    assert isinstance(result.state, ESCAPE)
+    assert "state" not in result.to_dict()
+
+
+# SCConfig options that the ARC baseline doesn't use, and the sc_params key that each sets.
+# On ARC, the 1D BVP of the 'tanh_linear' guess fails for psiN_pwg = 0.90 and 0.95.
+SC_OPTIONS = {
+    "tanh_linear": ({"initial_guess": "tanh_linear", "psiN_pwg": 0.94}, "x_pwg"),
+    "tanh_center": ({"tanh_center_psiN": 0.97}, "tanh_center"),
+    "solver_kwargs": ({"solver_kwargs": {"ivp_rtol": 1e-9}}, "ivp_rtol"),
+}
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("settings, key", SC_OPTIONS.values(), ids=SC_OPTIONS.keys())
+def test_run_with_sc_option(arc_state, eped1, settings, key, tmp_path, monkeypatch, capsys):
+    """One iteration; the solver gets the key and doesn't report it as unused."""
+    monkeypatch.chdir(tmp_path)
+    result = run_escape(arc_state, eped1, SCConfig(**settings), max_iter=1)
+    params = result.final.params
+    if key == "ivp_rtol":
+        assert params[key] == 1e-9
+    else:
+        assert params[key] < 0.0, "x of the initial guess is inside the separatrix"
+    if settings.get("initial_guess"):
+        assert params["initial_guess"] == settings["initial_guess"]
+    assert np.all(np.isfinite(result.final.ne_x))
+    unused = [line for line in capsys.readouterr().out.splitlines() if "not using" in line]
+    assert unused and not any(key in line for line in unused)
 
 
 @pytest.mark.slow
@@ -196,5 +205,5 @@ def test_run_3d_firedrake_matches_baseline(arc_state, arc_integration, sol_keys,
     assert result["n_iter"] == N_BASELINE_ITER
     assert result["converged"] is False
     assert [record["iteration"] for record in result["history"]] == list(range(N_BASELINE_ITER))
-    baseline = np.load(TESTS_DIR / "data" / "arc_3d_baseline.npy", allow_pickle=True).item()["iterations"]
+    baseline = np.load(REF_DIR / "arc_3d_baseline.npy", allow_pickle=True).item()["iterations"]
     _assert_records_equal_baseline(result["history"], baseline, sol_keys, diff, arc_integration.RTOL_3D)

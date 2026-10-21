@@ -18,7 +18,7 @@ def _array_fields(state):
             if isinstance(getattr(state, f.name), np.ndarray)}
 
 
-def test_fields_match_appendix_a():
+def test_fields_and_defaults():
     fields = {f.name: f for f in dataclasses.fields(PedestalPlasmaState)}
     assert set(fields) == REQUIRED | set(DEFAULTS)
     for name in REQUIRED:
@@ -118,14 +118,14 @@ def test_valid_input_passes(synthetic_inputs):
                            "R": d["R"] * (1.0 + 1e-12 * np.arange(5))})
 
 
-ESCAPE_EQ_KEYS = {"nr", "nz", "rleft", "rdim", "zmid", "zdim", "psirz", "raxis", "zaxis",
+EQUIL_PARAMS_KEYS = {"nr", "nz", "rleft", "rdim", "zmid", "zdim", "psirz", "raxis", "zaxis",
                   "psimag", "psibry", "fpol", "pres", "ip", "rzout"}
 GRID_SCALARS = ("rleft", "rdim", "zmid", "zdim")
 
 
-def test_escape_dict_reproduces_gfile(arc_state, ref_eq):
-    eq = arc_state._to_escape_dict()
-    assert set(eq) == ESCAPE_EQ_KEYS
+def test_equil_params_reproduce_gfile(arc_state, ref_eq):
+    eq = arc_state._to_equil_params()
+    assert set(eq) == EQUIL_PARAMS_KEYS
     for key, value in eq.items():
         ref = ref_eq[key]
         if isinstance(value, np.ndarray):
@@ -137,8 +137,8 @@ def test_escape_dict_reproduces_gfile(arc_state, ref_eq):
             assert value == ref and type(value) is type(ref), key
 
 
-def test_escape_dict_arrays_are_fresh(arc_state):
-    eq, eq_again = arc_state._to_escape_dict(), arc_state._to_escape_dict()
+def test_equil_params_arrays_are_fresh(arc_state):
+    eq, eq_again = arc_state._to_equil_params(), arc_state._to_equil_params()
     state_arrays = _array_fields(arc_state).values()
     for key, value in eq.items():
         if isinstance(value, np.ndarray):
@@ -147,12 +147,12 @@ def test_escape_dict_arrays_are_fresh(arc_state):
             assert not any(np.shares_memory(value, arr) for arr in state_arrays), key
 
 
-def test_escape_dict_pressure(synthetic_inputs):
-    eq = PedestalPlasmaState(**synthetic_inputs)._to_escape_dict()
+def test_equil_params_pressure(synthetic_inputs):
+    eq = PedestalPlasmaState(**synthetic_inputs)._to_equil_params()
     np.testing.assert_array_equal(eq["pres"], np.zeros(6))
     assert eq["pres"].flags.writeable
     pressure = np.linspace(1e5, 1e3, 6)
-    eq = PedestalPlasmaState(**synthetic_inputs, pressure=pressure)._to_escape_dict()
+    eq = PedestalPlasmaState(**synthetic_inputs, pressure=pressure)._to_equil_params()
     np.testing.assert_array_equal(eq["pres"], pressure)
 
 
@@ -199,7 +199,7 @@ GEOMETRY_CLOSE = ("gradr_fsa", "gradr2_fsa")
 
 
 def test_solve_keywords_mapping(synthetic_inputs):
-    """The Appendix A mapping of TASK.md, with values that differ from the defaults."""
+    """Each keyword and its value, with values that differ from the defaults."""
     psi_N = synthetic_inputs["psi_N_Te"]
     state = PedestalPlasmaState(**synthetic_inputs, species="D-T", Z_i=2, T_rat=1.3, Ti_follows_Te=False,
                                 psi_N_Ti=psi_N, Ti=np.linspace(4.0, 0.2, 6), quasineutral=False,
@@ -210,7 +210,7 @@ def test_solve_keywords_mapping(synthetic_inputs):
     assert keywords == {"Z_i": 2, "Z_eff": 1.5, "P_tot_e": 1e7, "ne_x0": 4e19, "quasineutral_flag": False,
                         "T_rat_flag": False, "T_rat": 1.3, "pol_norm": True, "species": "D-T",
                         "regime_flag": "NT"}
-    assert arrays["equil_params"].keys() == state._to_escape_dict().keys()
+    assert arrays["equil_params"].keys() == state._to_equil_params().keys()
     assert arrays["kprof_params"].keys() == state._to_kprof_params().keys()
 
 
@@ -226,3 +226,24 @@ def test_escape_geometry_from_arc_state(arc_state, ref_arc):
         np.testing.assert_array_equal(getattr(escape_state, name), ref[name], err_msg=name)
     for name in GEOMETRY_CLOSE:
         np.testing.assert_allclose(getattr(escape_state, name), ref[name], rtol=1e-12, atol=0, err_msg=name)
+
+
+def test_escape_takes_plasma_options(arc_state):
+    """ESCAPE built from states with non-default plasma options stores them."""
+    from escape.ESCAPE.ESCAPE_api import ESCAPE
+
+    Ti, ni = 0.8 * arc_state.Te, 0.9 * arc_state.ne
+    state = dataclasses.replace(arc_state, psi_N_Ti=arc_state.psi_N_Te, Ti=Ti, Ti_follows_Te=False,
+                                psi_N_ni=arc_state.psi_N_ne, ni=ni, quasineutral=False,
+                                ne_sep=4e19, species="D-T", Z_i=2, regime="NT")
+    escape_state = ESCAPE(**state._solve_keywords(), verbose=False)
+    np.testing.assert_array_equal(escape_state.T_i, Ti)
+    np.testing.assert_array_equal(escape_state.n_i, ni)
+    assert (escape_state.T_rat_flag, escape_state.quasineutral_flag) == (False, False)
+    assert (escape_state.ne_x0, escape_state.ne_x0_manual) == (4e19, True)
+    assert (escape_state.M_eff, escape_state.Z_i, escape_state.regime_flag) == (2.5, 2, "NT")
+
+    escape_state = ESCAPE(**dataclasses.replace(arc_state, T_rat=1.2)._solve_keywords(), verbose=False)
+    np.testing.assert_array_equal(escape_state.T_i, arc_state.Te * 1.2)
+    np.testing.assert_array_equal(escape_state.n_i, arc_state.ne)
+    assert (escape_state.ne_x0, escape_state.ne_x0_manual) == (arc_state.ne[-1], False)
