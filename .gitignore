@@ -1,5 +1,7 @@
 # Custom
 outputs/*
+firedrake-venv/
+firedrake-build/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -219,3 +221,4 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+.DS_Store

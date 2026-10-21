@@ -5,9 +5,15 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "freeqdsk>=0.5.2",
+    "h5py>=3.16.0",
+    "juliacall>=0.9.36",
+    "juliapkg>=0.1.27",
     "matplotlib>=3.10.9",
+    "netcdf4>=1.7.4",
     "numpy>=2.4.6",
     "pandas>=3.0.3",
+    "scipy>=1.17.1",
 ]
 
 
@@ -18,3 +24,28 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["plasma_limits*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+# ESCAPE is installed from the submodule checkout (see [tool.uv.sources]), not
+# from PyPI: the PyPI package "escape" is an unrelated project.
+escape = [
+    "escape[eped1]",
+]
+
+[tool.uv]
+default-groups = ["dev", "escape"]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib --strict-markers -m 'not slow and not integration'"
+testpaths = ["tests"]
+markers = [
+    "slow: end-to-end runs with real EPED1 (starts Julia)",
+    "integration: ARC runs of ESCAPE (1D scipy and 3D Firedrake, real EPED1) against tests/data/arc_*_baseline.npy",
+]
+
+[tool.uv.sources]
+escape = { path = "dependencies/ESCAPE", editable = true }

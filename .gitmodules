@@ -1,0 +1,4 @@
+[submodule "src/pedestal_prediction/ESCAPE"]
+	path = dependencies/ESCAPE
+	url = https://github.com/jlabbate15/ESCAPE.git
+	ignore = untracked

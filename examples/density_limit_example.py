@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-from density_limit.metrics import DL26, Greenwald, PlasmaState, calc_q_star, calc_beta_edge, calc_collisionality_edge
+from plasma_limits.density_limit.metrics import DL26, Greenwald, PlasmaState, calc_q_star, calc_beta_edge, calc_collisionality_edge
 
 # Read plasma data
 filename = "examples/CUTE/plasma_parameters_CUTE.csv"
