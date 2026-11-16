@@ -1,0 +1,2 @@
+# Optional visualization dependency; GPEC itself runs in Julia.
+matplotlib>=3.8,<4

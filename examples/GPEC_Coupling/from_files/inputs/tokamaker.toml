@@ -1,0 +1,70 @@
+schema_version = 1
+id = "tokamaker"
+device = "DIII-D"
+source = "TokaMaker reconstruction of EFIT #147131 at 2300 ms"
+constraints = "Target original total current and plasma contour; use baseline jphi-linterp profile prescription. These are numerical constraints, not proof of exact preservation."
+scan = "Eight thermal-pressure multipliers; scale electron and ion density, keep temperature and rotation unchanged."
+
+[[points]]
+id = "case_01"
+multiplier = 1.0
+equilibrium = "inputs/tokamaker/case_01/equilibrium.geqdsk"
+kinetics = "inputs/tokamaker/case_01/kinetics.csv"
+producer_beta_n = 1.5965788319185323
+sha256 = "aba839f4b5d59faf93988540ab25fd43b12da7016ef7b9e820da634f638ce4e4"
+
+[[points]]
+id = "case_02"
+multiplier = 1.1142857142857143
+equilibrium = "inputs/tokamaker/case_02/equilibrium.geqdsk"
+kinetics = "inputs/tokamaker/case_02/kinetics.csv"
+producer_beta_n = 1.7775595173540284
+sha256 = "973e8a22768c0d51055c012d3fcf4da69c16bbe701e8c5291242b6f9d52ba156"
+
+[[points]]
+id = "case_03"
+multiplier = 1.2285714285714286
+equilibrium = "inputs/tokamaker/case_03/equilibrium.geqdsk"
+kinetics = "inputs/tokamaker/case_03/kinetics.csv"
+producer_beta_n = 1.958111223899898
+sha256 = "010bf830ec9e743a9261ccda521bad4ed1e83cf328cacbc24e9f419947fc9bbb"
+
+[[points]]
+id = "case_04"
+multiplier = 1.342857142857143
+equilibrium = "inputs/tokamaker/case_04/equilibrium.geqdsk"
+kinetics = "inputs/tokamaker/case_04/kinetics.csv"
+producer_beta_n = 2.1384766813578966
+sha256 = "f32bd57ceb60fc4cc99ccc0792869e722d70a9fc78b4152024e05a8eb93f9d54"
+
+[[points]]
+id = "case_05"
+multiplier = 1.4571428571428573
+equilibrium = "inputs/tokamaker/case_05/equilibrium.geqdsk"
+kinetics = "inputs/tokamaker/case_05/kinetics.csv"
+producer_beta_n = 2.3191667637570297
+sha256 = "f36e4be4e7a33964c16f5da35b4588a9946a598b2f1c7a18afbf04dcf5d544bb"
+
+[[points]]
+id = "case_06"
+multiplier = 1.5714285714285716
+equilibrium = "inputs/tokamaker/case_06/equilibrium.geqdsk"
+kinetics = "inputs/tokamaker/case_06/kinetics.csv"
+producer_beta_n = 2.49898114442232
+sha256 = "5e9f03bdeb8474eb5ad5ac63cce7857ab09596a66859efe74f04f3880a42e836"
+
+[[points]]
+id = "case_07"
+multiplier = 1.6857142857142857
+equilibrium = "inputs/tokamaker/case_07/equilibrium.geqdsk"
+kinetics = "inputs/tokamaker/case_07/kinetics.csv"
+producer_beta_n = 2.678680674854426
+sha256 = "f1918cd7e4dccf048dfd32d8191bc88b109c644d46dba3a531d8f1995ce7cb27"
+
+[[points]]
+id = "case_08"
+multiplier = 1.8
+equilibrium = "inputs/tokamaker/case_08/equilibrium.geqdsk"
+kinetics = "inputs/tokamaker/case_08/kinetics.csv"
+producer_beta_n = 2.8561968818651184
+sha256 = "7499f482d666da680f635ad558434a1add2cda492e402eead5dfc197b7364a9c"

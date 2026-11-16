@@ -1,0 +1,62 @@
+name: Prepared DIII-D GPEC example
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/gpec-prepared.yml'
+      - '.gitmodules'
+      - 'external/GPEC'
+      - 'examples/GPEC_Coupling/from_files/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepared-scans:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        julia-version: ['1.11', '1.12']
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      GKSwstype: '100'
+    defaults:
+      run:
+        working-directory: examples/GPEC_Coupling/from_files
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+      - uses: julia-actions/cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install plotting dependency and check inputs
+        run: |
+          python3 -m pip install -r requirements-plotting.txt
+          python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Install the pinned submodule environment
+        run: bash setup.sh
+      - name: Run both scans and compare with the reference
+        run: |
+          bash run_example.sh outputs/ci
+          python3 scripts/check_reference.py outputs/ci
+      - name: Preserve small results and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diiid-gpec-julia-${{ matrix.julia-version }}
+          path: |
+            examples/GPEC_Coupling/from_files/outputs/ci/*.toml
+            examples/GPEC_Coupling/from_files/outputs/ci/*.json
+            examples/GPEC_Coupling/from_files/outputs/ci/*.png
+            examples/GPEC_Coupling/from_files/outputs/ci/*/solver.log
+            examples/GPEC_Coupling/from_files/outputs/ci/*/result.toml
+            examples/GPEC_Coupling/from_files/outputs/ci/*/gpec.toml

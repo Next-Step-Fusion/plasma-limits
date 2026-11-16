@@ -1,0 +1,3 @@
+[submodule "external/GPEC"]
+	path = external/GPEC
+	url = https://github.com/OpenFUSIONToolkit/GPEC.git

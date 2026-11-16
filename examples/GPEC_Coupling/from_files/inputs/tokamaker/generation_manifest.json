@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "device": "DIII-D",
+  "shot": 147131,
+  "time_ms": 2300,
+  "prepared_date": "2026-11-16",
+  "equilibrium_generation_date": "2026-10-25",
+  "source_pr": "https://github.com/Next-Step-Fusion/plasma-limits/pull/2",
+  "source_commit": "169c302bf55e3f8099c1c09d420c0545cf1590b8",
+  "gpec_reference_commit": "cefa01003f59a0cc34e20b77681428b2efe54788",
+  "gpec_reference_tree": "9f3def8e22ed89dd8ad06d19ae2e70e66a556b33",
+  "producer": {
+    "tokamaker": "OpenFUSIONToolkit 26.6.dev26",
+    "python": "3.12.11",
+    "julia": "1.12.7"
+  },
+  "scan": "Eight thermal-pressure multipliers; scale electron and ion density, keep temperature and rotation unchanged.",
+  "equilibrium_constraints": "Target original total current and plasma contour; use baseline jphi-linterp profile prescription. These are numerical constraints, not proof of exact preservation.",
+  "export": {
+    "nr": 257,
+    "nz": 257,
+    "truncate_eq": false,
+    "lcfs_pad": 0.001
+  },
+  "kinetics": "psi is copied verbatim from the source .kin column used by the notebook; no coordinate conversion. ne and ni already scaled: do not multiply again. p_thermal_Pa is the requested thermal-pressure profile, not a claim of exact agreement with exported equilibrium pressure.",
+  "layer": {
+    "m": 2,
+    "n": 1,
+    "mu_i": 2.0,
+    "zeff": 1.5,
+    "chi_perp": 1.0,
+    "chi_tor": 1.0,
+    "dc_type": "rfitzp",
+    "diamagnetic_assumption": "omega_e=omega; omega_i=-omega-1 are notebook placeholders for input validation, not physical diamagnetic profiles; selected dc_tmp formula does not use them."
+  },
+  "beta_n_definition": "beta_tor_percent * a_geo_m * B_T / Ip_MA, using TokaMaker geometric radius convention. This is not ordinary beta percent.",
+  "scope": "n=1 no-wall, qlow=1.02 and dmlim=0.2, selected 2/1 tearing diagnostic. No growth rates, RWM, nonlinear NTM or all-mode device beta-limit certification. No new convergence validation.",
+  "points": [
+    {
+      "case": "case_01",
+      "fraction": 1.0,
+      "beta_n_tokamaker": 1.5965788319185323,
+      "equilibrium": "cases/case_01/tokamaker.geqdsk",
+      "kinetics": "cases/case_01/kinetics.csv",
+      "config": "cases/case_01/gpec.toml"
+    },
+    {
+      "case": "case_02",
+      "fraction": 1.1142857142857143,
+      "beta_n_tokamaker": 1.7775595173540284,
+      "equilibrium": "cases/case_02/tokamaker.geqdsk",
+      "kinetics": "cases/case_02/kinetics.csv",
+      "config": "cases/case_02/gpec.toml"
+    },
+    {
+      "case": "case_03",
+      "fraction": 1.2285714285714286,
+      "beta_n_tokamaker": 1.958111223899898,
+      "equilibrium": "cases/case_03/tokamaker.geqdsk",
+      "kinetics": "cases/case_03/kinetics.csv",
+      "config": "cases/case_03/gpec.toml"
+    },
+    {
+      "case": "case_04",
+      "fraction": 1.342857142857143,
+      "beta_n_tokamaker": 2.1384766813578966,
+      "equilibrium": "cases/case_04/tokamaker.geqdsk",
+      "kinetics": "cases/case_04/kinetics.csv",
+      "config": "cases/case_04/gpec.toml"
+    },
+    {
+      "case": "case_05",
+      "fraction": 1.4571428571428573,
+      "beta_n_tokamaker": 2.3191667637570297,
+      "equilibrium": "cases/case_05/tokamaker.geqdsk",
+      "kinetics": "cases/case_05/kinetics.csv",
+      "config": "cases/case_05/gpec.toml"
+    },
+    {
+      "case": "case_06",
+      "fraction": 1.5714285714285716,
+      "beta_n_tokamaker": 2.49898114442232,
+      "equilibrium": "cases/case_06/tokamaker.geqdsk",
+      "kinetics": "cases/case_06/kinetics.csv",
+      "config": "cases/case_06/gpec.toml"
+    },
+    {
+      "case": "case_07",
+      "fraction": 1.6857142857142857,
+      "beta_n_tokamaker": 2.678680674854426,
+      "equilibrium": "cases/case_07/tokamaker.geqdsk",
+      "kinetics": "cases/case_07/kinetics.csv",
+      "config": "cases/case_07/gpec.toml"
+    },
+    {
+      "case": "case_08",
+      "fraction": 1.8,
+      "beta_n_tokamaker": 2.8561968818651184,
+      "equilibrium": "cases/case_08/tokamaker.geqdsk",
+      "kinetics": "cases/case_08/kinetics.csv",
+      "config": "cases/case_08/gpec.toml"
+    }
+  ]
+}
