@@ -2,6 +2,15 @@
 
 _Ideal kink and tearing stability of a DIII-D plasma during a pressure scan with TokaMaker + GPEC_
 
+## Prepared-file beta example
+
+The [prepared-equilibrium example](from_files/README.md) runs a pinned GPEC submodule on
+TokaMaker and NSFsim DIII-D datasets without either equilibrium producer at runtime. It includes
+installation instructions, numerical checks, reference plots and a dedicated CI workflow.
+Its scope is the n=1 no-wall ideal threshold; the notebook below remains the optional equilibrium
+generation and tearing workflow, with its own dependencies. The new pin is validated for the
+prepared-file example, not yet for every call in the original notebook.
+
 ## Overview
 
 This workflow reconstructs a DIII-D equilibrium (shot 147131 at 2300 ms) in TokaMaker, scales up

@@ -1,0 +1,118 @@
+schema_version = 1
+id = "nsfsim"
+device = "DIII-D"
+source = "NSFsim d3d_basic prescribed-kinetics scan; distinct from EFIT #147131"
+constraints = "Fixed total plasma current and boundary mode; p-prime and FF-prime evolve, current-profile shape is not fixed. Existing generation diagnostics are retained."
+scan = "Scale deuteron and triton densities at fixed temperature profiles; ramp and settle each point."
+
+[[points]]
+id = "case_01"
+multiplier = 1.0
+equilibrium = "inputs/nsfsim/case_01/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_01/kinetics.csv"
+producer_beta_n = 0.9825771081692
+sha256 = "400c9e2f2d605cbe832a67c98f7843f86de579ac82768224cfb08b21abd8d890"
+
+[[points]]
+id = "case_02"
+multiplier = 1.2857142857142858
+equilibrium = "inputs/nsfsim/case_02/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_02/kinetics.csv"
+producer_beta_n = 1.2731883494583807
+sha256 = "a82f58f07bd0c7227348cdd43fe545b8378d2576666105791c60e190f37e0bca"
+
+[[points]]
+id = "case_03"
+multiplier = 1.5714285714285714
+equilibrium = "inputs/nsfsim/case_03/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_03/kinetics.csv"
+producer_beta_n = 1.5681289645700889
+sha256 = "9e4daba0cac1d190667396161d4bb46c861165a8825f1f5b6ddd7191127865d0"
+
+[[points]]
+id = "case_04"
+multiplier = 1.8571428571428572
+equilibrium = "inputs/nsfsim/case_04/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_04/kinetics.csv"
+producer_beta_n = 1.8673271466861425
+sha256 = "c34f1140fc39209050669db2ec7e9dc7eb1cdda2cddeb9a41efc58f901d044e2"
+
+[[points]]
+id = "case_05"
+multiplier = 2.0
+equilibrium = "inputs/nsfsim/case_05/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_05/kinetics.csv"
+producer_beta_n = 2.0186520191035853
+sha256 = "8d782464971fa79436d611f8fac120c0e7e58ce3236d02e808cff412f3d50710"
+
+[[points]]
+id = "case_06"
+multiplier = 2.05
+equilibrium = "inputs/nsfsim/case_06/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_06/kinetics.csv"
+producer_beta_n = 2.0720435221612354
+sha256 = "2bd8906ac5ad1c6c2e22b12c3fdb46a4d58a1f488144cf99b076f74e0c39499b"
+
+[[points]]
+id = "case_07"
+multiplier = 2.1
+equilibrium = "inputs/nsfsim/case_07/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_07/kinetics.csv"
+producer_beta_n = 2.1255309365134605
+sha256 = "c69f0f1a19f786170dcd3cc7181ce8c81517525f7e576f151b8fa0b79e746843"
+
+[[points]]
+id = "case_08"
+multiplier = 2.15
+equilibrium = "inputs/nsfsim/case_08/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_08/kinetics.csv"
+producer_beta_n = 2.179137315058679
+sha256 = "68ceafa5a94100fefc489845dacd95ed9edc22bdaa719c64657050898d5cc68b"
+
+[[points]]
+id = "case_09"
+multiplier = 2.2
+equilibrium = "inputs/nsfsim/case_09/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_09/kinetics.csv"
+producer_beta_n = 2.2328711886926906
+sha256 = "a00671036346c9ee96c32bd355b5fcdd29371bfab01f0cff28c9063bb8729d12"
+
+[[points]]
+id = "case_10"
+multiplier = 2.25
+equilibrium = "inputs/nsfsim/case_10/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_10/kinetics.csv"
+producer_beta_n = 2.2867369307026544
+sha256 = "dbd9d06b7f371d2ce86b3a75022156c238fff332bf0646aaa203ebd0fc0d0c33"
+
+[[points]]
+id = "case_11"
+multiplier = 2.3
+equilibrium = "inputs/nsfsim/case_11/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_11/kinetics.csv"
+producer_beta_n = 2.340737183585855
+sha256 = "09b1e049515359c05a90a847e298cbc2eaf3ab1729816ad18903287b13527173"
+
+[[points]]
+id = "case_12"
+multiplier = 2.35
+equilibrium = "inputs/nsfsim/case_12/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_12/kinetics.csv"
+producer_beta_n = 2.3948737403058282
+sha256 = "829f61eabcb5906c606054a9eb15b9886939e22441c15b7bd2903f86f73c1024"
+
+[[points]]
+id = "case_13"
+multiplier = 2.4
+equilibrium = "inputs/nsfsim/case_13/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_13/kinetics.csv"
+producer_beta_n = 2.449147933016168
+sha256 = "49e4119e64914350adcda00d47b2a7d6174c9a472552c648477c129404467ebe"
+
+[[points]]
+id = "case_14"
+multiplier = 2.45
+equilibrium = "inputs/nsfsim/case_14/equilibrium.geqdsk"
+kinetics = "inputs/nsfsim/case_14/kinetics.csv"
+producer_beta_n = 2.5035608276759085
+sha256 = "9459d7974032c928a81d62629174471a9dc6df0df5a9301a2312ac44b62e538a"

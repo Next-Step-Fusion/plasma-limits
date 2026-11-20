@@ -1,0 +1,38 @@
+# Prepared DIII-D equilibrium: n=1 ideal free-boundary stability.
+# No Wall section means no stabilizing conducting wall.
+# qlow retains the original example's low-q core exclusion policy.
+
+[Run]
+verbose = true # Log each stage's progress
+output_file = "gpec.h5" # Run-wide output file
+
+[Equilibrium]
+eq_filename = "equilibrium.geqdsk" # Path to equilibrium file
+eq_type = "efit" # Type of the input 2D equilibrium file
+jac_type = "hamada" # Coordinate system
+grid_type = "auto" # Two-pass measured-curvature radial grid
+psilow = 1e-4 # Lower limit of normalized poloidal flux
+psihigh = 0.995 # Upper limit of normalized poloidal flux
+mpsi = 0 # Two-pass radial grid selected from psi_accuracy
+psi_accuracy = 0.00025 # Target relative accuracy of splined profile derivatives
+mtheta = 1028 # Number of poloidal grid points
+flux_surface_rtol = 1e-10 # Relative tolerance of the flux-surface tracing ODE
+
+[ForceFreeStates]
+nn = 1 # Toroidal mode number
+integrator = "Riccati" # Integration formalism
+vac_flag = true # Compute plasma, vacuum, and total free-boundary energies
+frobenius_psi_max = 0.0 # Use the fixed start; the opt-in Frobenius start is unreliable
+qlow = 1.02 # Low-q integration cutoff
+qhigh = 1e3 # Upper safety-factor limit
+truncate_at_rational_offset = true # Truncate outside the last rational surface
+rational_offset_fraction = 0.2 # Offset from the last rational safety factor
+delta_mlow = 12 # Lower poloidal sidebands
+delta_mhigh = 12 # Upper poloidal sidebands
+mtheta_vacuum = 960 # Poloidal resolution at the plasma-vacuum interface
+singfac_min = 1e-4 # Fractional distance from rational q for the ideal jump
+
+[Riccati]
+eulerlagrange_tolerance = 1e-10 # Relative tolerance for Euler-Lagrange integration
+save_interval = 1 # Save every ODE step
+renorm_threshold = 1e3 # Column-norm renormalization threshold

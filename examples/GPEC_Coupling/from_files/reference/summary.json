@@ -1,0 +1,280 @@
+{
+  "scope": "DIII-D, n=1, no conducting wall, qlow=1.02, fixed inner start; conditional example threshold, not the all-mode device beta limit.",
+  "beta_definition": "GPEC normalized beta for both equilibrium producers; dimensionless conventional beta_N, not beta percent.",
+  "datasets": {
+    "nsfsim": {
+      "source": "NSFsim d3d_basic prescribed-kinetics scan; distinct from EFIT #147131",
+      "constraints": "Fixed total plasma current and boundary mode; p-prime and FF-prime evolve, current-profile shape is not fixed. Existing generation diagnostics are retained.",
+      "solver_warnings": [
+        {
+          "point": "case_09",
+          "preset": "baseline",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_10",
+          "preset": "baseline",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_11",
+          "preset": "baseline",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_12",
+          "preset": "baseline",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_13",
+          "preset": "baseline",
+          "messages": [
+            "Fixed-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_14",
+          "preset": "baseline",
+          "messages": [
+            "Fixed-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_09",
+          "preset": "fine",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_09",
+          "preset": "core",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_09",
+          "preset": "riccati",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        }
+      ],
+      "baseline": {
+        "status": "bracketed",
+        "beta_n_estimate": 2.255849212198107,
+        "beta_n_bracket": [
+          2.2407097809763563,
+          2.296981019868211
+        ],
+        "bracket_points": [
+          "case_08",
+          "case_09"
+        ],
+        "method": "linear interpolation within the first screened stable-to-unstable bracket",
+        "precision_note": "The bracket is the data resolution; interpolation is not an additional equilibrium solve."
+      },
+      "bracket_checks": {
+        "fine": {
+          "status": "bracketed",
+          "beta_n_estimate": 2.258042428306219,
+          "beta_n_bracket": [
+            2.2428123845909442,
+            2.2991365225512364
+          ],
+          "bracket_points": [
+            "case_08",
+            "case_09"
+          ],
+          "method": "linear interpolation within the first screened stable-to-unstable bracket",
+          "precision_note": "The bracket is the data resolution; interpolation is not an additional equilibrium solve."
+        },
+        "core": {
+          "status": "bracketed",
+          "beta_n_estimate": 2.257651838708849,
+          "beta_n_bracket": [
+            2.242812217600246,
+            2.299136345261351
+          ],
+          "bracket_points": [
+            "case_08",
+            "case_09"
+          ],
+          "method": "linear interpolation within the first screened stable-to-unstable bracket",
+          "precision_note": "The bracket is the data resolution; interpolation is not an additional equilibrium solve."
+        },
+        "riccati": {
+          "status": "bracketed",
+          "beta_n_estimate": 2.2601055390628475,
+          "beta_n_bracket": [
+            2.2428123845909442,
+            2.2991365225512364
+          ],
+          "bracket_points": [
+            "case_08",
+            "case_09"
+          ],
+          "method": "linear interpolation within the first screened stable-to-unstable bracket",
+          "precision_note": "The bracket is the data resolution; interpolation is not an additional equilibrium solve."
+        }
+      },
+      "convergence": {
+        "status": "passed_demonstration_gate",
+        "relative_estimate_spread": 0.00188679582027251,
+        "relative_tolerance": 0.01,
+        "note": "Checks recompute the bracket endpoints. This is not all-mode or experimental validation."
+      },
+      "completed": 20,
+      "failed": 0
+    },
+    "tokamaker": {
+      "source": "TokaMaker reconstruction of EFIT #147131 at 2300 ms",
+      "constraints": "Target original total current and plasma contour; use baseline jphi-linterp profile prescription. These are numerical constraints, not proof of exact preservation.",
+      "solver_warnings": [
+        {
+          "point": "case_02",
+          "preset": "baseline",
+          "messages": [
+            "W inverse matrix was non-Hermitian beyond tolerance at 1 integration step(s)"
+          ]
+        },
+        {
+          "point": "case_06",
+          "preset": "baseline",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_07",
+          "preset": "baseline",
+          "messages": [
+            "W inverse matrix was non-Hermitian beyond tolerance at 4 integration step(s)",
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_08",
+          "preset": "baseline",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_06",
+          "preset": "fine",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_05",
+          "preset": "core",
+          "messages": [
+            "W inverse matrix was non-Hermitian beyond tolerance at 1 integration step(s)"
+          ]
+        },
+        {
+          "point": "case_06",
+          "preset": "core",
+          "messages": [
+            "Free-boundary mode unstable for n = 1"
+          ]
+        },
+        {
+          "point": "case_05",
+          "preset": "riccati",
+          "messages": [
+            "The g-file's FPOL is single precision. Its rounding puts noise of order \u00b12\u20133 on \u0394\u2032 at 257 radial nodes; regenerate the file in double precision for converged \u0394\u2032.",
+            "W inverse matrix was non-Hermitian beyond tolerance at 25 integration step(s)"
+          ]
+        },
+        {
+          "point": "case_06",
+          "preset": "riccati",
+          "messages": [
+            "The g-file's FPOL is single precision. Its rounding puts noise of order \u00b12\u20133 on \u0394\u2032 at 257 radial nodes; regenerate the file in double precision for converged \u0394\u2032.",
+            "W inverse matrix was non-Hermitian beyond tolerance at 51 integration step(s)",
+            "Free-boundary mode unstable for n = 1"
+          ]
+        }
+      ],
+      "baseline": {
+        "status": "bracketed",
+        "beta_n_estimate": 2.325320454761692,
+        "beta_n_bracket": [
+          2.312921341796731,
+          2.4922430535574973
+        ],
+        "bracket_points": [
+          "case_05",
+          "case_06"
+        ],
+        "method": "linear interpolation within the first screened stable-to-unstable bracket",
+        "precision_note": "The bracket is the data resolution; interpolation is not an additional equilibrium solve."
+      },
+      "bracket_checks": {
+        "fine": {
+          "status": "bracketed",
+          "beta_n_estimate": 2.327617408060713,
+          "beta_n_bracket": [
+            2.315340702535901,
+            2.495062471155193
+          ],
+          "bracket_points": [
+            "case_05",
+            "case_06"
+          ],
+          "method": "linear interpolation within the first screened stable-to-unstable bracket",
+          "precision_note": "The bracket is the data resolution; interpolation is not an additional equilibrium solve."
+        },
+        "core": {
+          "status": "bracketed",
+          "beta_n_estimate": 2.3276056530448384,
+          "beta_n_bracket": [
+            2.315341013176721,
+            2.495062400966725
+          ],
+          "bracket_points": [
+            "case_05",
+            "case_06"
+          ],
+          "method": "linear interpolation within the first screened stable-to-unstable bracket",
+          "precision_note": "The bracket is the data resolution; interpolation is not an additional equilibrium solve."
+        },
+        "riccati": {
+          "status": "bracketed",
+          "beta_n_estimate": 2.335499442950047,
+          "beta_n_bracket": [
+            2.315340702535901,
+            2.495062471155193
+          ],
+          "bracket_points": [
+            "case_05",
+            "case_06"
+          ],
+          "method": "linear interpolation within the first screened stable-to-unstable bracket",
+          "precision_note": "The bracket is the data resolution; interpolation is not an additional equilibrium solve."
+        }
+      },
+      "convergence": {
+        "status": "passed_demonstration_gate",
+        "relative_estimate_spread": 0.004377456091056544,
+        "relative_tolerance": 0.01,
+        "note": "Checks recompute the bracket endpoints. This is not all-mode or experimental validation."
+      },
+      "completed": 14,
+      "failed": 0
+    }
+  }
+}
