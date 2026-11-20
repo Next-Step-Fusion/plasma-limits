@@ -13,6 +13,9 @@ computes:
 - The tearing stability index $\Delta'$ at the 2/1 surface.
 - The Glasser correction $\Delta_{crit}$ at the same surface, using GPEC's SLAYER inner-layer model.
 
+The scan is then repeated with an ideal conducting wall that follows the plasma boundary, to
+show how the wall raises the ideal $\beta_N$ limit and changes $\Delta'$.
+
 ## File overview
 
 | File | Role |
@@ -23,8 +26,8 @@ computes:
 | `DIIID_mesh.h5` | DIII-D TokaMaker mesh, taken from the OFT DIII-D baseline example |
 | `requirements_GPEC_Coupling.txt` | Python packages needed in addition to OFT |
 
-At runtime the notebook creates a
-`gpec_runs/` directory with the gEQDSK, `gpec.toml` and `gpec.h5` files for each scan point.
+At runtime the notebook creates a `gpec_runs/` directory, with a `nowall/` and a `wall/`
+subdirectory holding the gEQDSK, `gpec.toml` and `gpec.h5` files for each scan point.
 
 ## Setup
 
@@ -36,7 +39,9 @@ At runtime the notebook creates a
    ```
 2. Install [Julia](https://julialang.org/) and make sure `julia` is on your `PATH`.
 3. Clone GPEC, install its dependencies, and install `PythonCall` (used by `juliacall`) in your
-   default Julia environment:
+   default Julia environment. The notebook needs GPEC v2.0 or later, since it uses the `gpec.toml`
+   format and Julia interface introduced in v2.0 (it was last tested with the `develop` branch at
+   commit `4f54bd2e9`, after the v2.0.1 release):
    ```bash
    git clone https://github.com/OpenFUSIONToolkit/GPEC.git
    julia --project=/path/to/GPEC -e 'using Pkg; Pkg.resolve(); Pkg.instantiate()'
@@ -64,5 +69,10 @@ it depends on external tools.
 - The pressure is scaled by scaling the density, with fixed temperature profiles.
 - $\Delta_{crit}$ uses an assumed $Z_{eff} = 1.5$ and perpendicular heat diffusivity
   $\chi_\perp = 1$ m²/s.
+- TokaMaker writes the gEQDSK `FPOL` profile in single precision. GPEC warns that this adds noise
+  of order ±2–3 to $\Delta'$ at the radial resolution used here.
 - The tearing metrics are not reliable close to the ideal limit, so they are only shown for
   $\beta < \beta_{lim}$.
+- The wall is ideal (perfectly conducting), so the scan with a wall gives the ideal-wall limit.
+  It does not include resistive wall modes, which can be unstable between the no-wall and
+  ideal-wall limits.
